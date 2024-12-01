@@ -1,0 +1,6 @@
+numpy
+numba
+shapely
+scipy
+viscek
+matplotlib
