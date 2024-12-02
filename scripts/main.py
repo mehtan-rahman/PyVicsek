@@ -7,8 +7,8 @@ from vicsek.models.particle import Particle
 from vicsek.util.cell_list import CellList
 
 
-n_particles = 20
-length = 50
+n_particles = 1024
+length = 16
 dim = 2
 v = np.array([1, 0])
 
@@ -40,5 +40,5 @@ for i in range(n_particles):
 
 cell_list = CellList(particles, box_length=length, interaction_range=10, use_pbc=True)
 cell_list.build()
-cell_list.visualize(show_cell_grid=True, label_cells=True, label_particles=True)
+cell_list.visualize(show_cell_grid=True, label_cells=True, label_particles=False)
 plt.show()
