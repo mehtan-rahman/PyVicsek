@@ -16,40 +16,27 @@ class Vicsek:
     def __init__(
             self,
             length: float,
-            n_particles: int,
+            particles: List[Particle],
             interaction_range: float,
             speed: float,
             noise_factor: float,
-            n_dimensions: int = 2,
             timestep: float = 1,
             use_pbc: bool = True,
     ) -> None:
-        if n_dimensions not in (2, 3):
-            raise ValueError("n_dimensions must be either 2 or 3")
-
         self.length = length
         self.interaction_range = interaction_range
         self.v = speed
         self.mu = noise_factor
         self.delta_t = timestep
-        self.dim = n_dimensions
 
-        self.particles = []
-        for i in range(n_particles):
-            position = np.random.uniform(0, length, size=n_dimensions)
-            velocity = speed * _random_unit_vector(n_dimensions)
-
-            self.particles.append(Particle(
-                position=position,
-                velocity=velocity,
-                name=f"p{i}"
-            ))
+        self.particles = particles
+        self.dim = len(particles[0].position)
 
         self._cell_list = CellList(
             particles=self.particles,
             box_length=length,
             interaction_range=interaction_range,
-            n_dimensions=n_dimensions,
+            n_dimensions=self.dim,
             use_pbc=use_pbc
         )
         self._cell_list.build()
