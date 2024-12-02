@@ -1,10 +1,8 @@
 from typing import Dict, Tuple, List, Union
-
 import numpy as np
 from matplotlib import pyplot as plt
 from numpy.typing import NDArray
-
-from viscek.models.particle import Particle
+from vicsek.models.particle import Particle
 
 
 class CellList:
@@ -16,9 +14,6 @@ class CellList:
             n_dimensions: int = 2,
             use_pbc: bool = True
     ):
-        if n_dimensions not in (2, 3):
-            raise ValueError("n_dimensions must be either 2 or 3")
-
         self.particles = particles
         self.box_length = box_length
         self.interaction_range = interaction_range
@@ -38,7 +33,6 @@ class CellList:
         self.cells: Dict[Tuple[int, ...], List[Particle]] = {}
 
     def _compute_non_pbc_neighbor_offsets(self):
-        """Compute neighbor offsets for non-periodic boundary conditions."""
         base_offsets = np.array(np.meshgrid(*[[-1, 0, 1]] * self.n_dimensions)).T.reshape(-1, self.n_dimensions)
         valid_offsets = []
 
@@ -55,15 +49,13 @@ class CellList:
 
     def _hash_position(self, position: NDArray) -> Tuple[int, ...]:
         indices = (position / self.cell_size).astype(int)
-        y_idx = self.n_cells - 1 - indices[1]
-        x_idx = indices[0]
+        indices = np.flipud(indices)
 
         if self.use_pbc:
-            cell_indices = (y_idx % self.n_cells, x_idx % self.n_cells)
+            cell_indices = tuple(idx % self.n_cells for idx in indices)
         else:
-            cell_indices = (
-                np.clip(y_idx, 0, self.n_cells - 1),
-                np.clip(x_idx, 0, self.n_cells - 1)
+            cell_indices = tuple(
+                np.clip(idx, 0, self.n_cells - 1) for idx in indices
             )
 
         return cell_indices
@@ -108,7 +100,6 @@ class CellList:
                 neighbor_cell = tuple((np.array(cell_index) + offset) % self.n_cells)
             else:
                 neighbor_cell = tuple(np.array(cell_index) + offset)
-                # Skip cells outside bounds for non-PBC
                 if not all(0 <= idx < self.n_cells for idx in neighbor_cell):
                     continue
             neighbors.extend(self.cells[neighbor_cell])
@@ -144,7 +135,7 @@ class CellList:
         ax.set_xlim(0, self.box_length)
         ax.set_ylim(0, self.box_length)
 
-        if show_cell_grid:
+        if show_cell_grid and self.n_dimensions <= 2:
             for i in range(self.n_cells + 1):
                 pos = i * self.cell_size
                 ax.axvline(x=pos, color='black', alpha=0.3, linestyle='-')
@@ -154,15 +145,14 @@ class CellList:
                     for j in range(self.n_cells):
                         center_x = (j + 0.5) * self.cell_size
                         center_y = (i + 0.5) * self.cell_size
-                        ax.text(center_x, center_y, f'({self.n_cells - 1 - i},{j})',
+                        ax.text(center_x, center_y, f'({i},{j})',
                                 ha='center', va='center', alpha=0.5)
 
         for i, particle in enumerate(self.particles):
-            ax.scatter(particle.position[0], particle.position[1],
-                       c='dimgrey', s=50, alpha=0.7)
+            pos = particle.position[:2]
+            ax.scatter(pos[0], pos[1], c='dimgrey', s=50, alpha=0.7)
             if label_particles:
-                ax.text(particle.position[0], particle.position[1], str(i),
-                        ha='right', va='bottom')
+                ax.text(pos[0], pos[1], str(i), ha='right', va='bottom')
 
         ax.set_aspect('equal')
         ax.set_xlabel('x')
