@@ -1,36 +1,26 @@
 import numpy as np
 from matplotlib import pyplot as plt
-from shapely import Geometry
 from numpy.typing import NDArray
-from scipy.spatial.transform import Rotation
-
 
 class Particle:
     def __init__(
         self,
-        position: NDArray,
-        velocity: NDArray,
-        rotation: Rotation,
-        geometry: Geometry,
-        type: str,
-        name: str
+        position: NDArray[float],
+        velocity: NDArray[float],
+        name: str,
+        type: str
     ):
         self._position = np.array(position) if not isinstance(position, np.ndarray) else position
         self._velocity = np.array(velocity) if not isinstance(velocity, np.ndarray) else velocity
-        self.rotation = rotation
-        self.geometry = geometry
-        self.type = type
+
         self.name = name
+        self.type = type
 
     def __sub__(self, other):
         return np.linalg.norm(other.position - self.position)
 
     def __repr__(self):
         return f"Particle(name={self.name}, pos={self.position})"
-
-    @property
-    def direction(self):
-        return np.linalg.norm(self._velocity)
 
     @property
     def position(self):
@@ -61,12 +51,10 @@ class Particle:
         if ax is None:
             fig, ax = plt.subplots()
 
-        # Plot particle position
         ax.scatter(self.position[0], self.position[1], c=color, s=size, alpha=alpha)
         if label:
             ax.annotate(self.name, (self.position[0], self.position[1]))
 
-        # Optionally show velocity vector
         if show_velocity and np.any(self.velocity):
             ax.arrow(
                 self.position[0],
