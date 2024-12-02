@@ -1,8 +1,10 @@
 from typing import List
+
 import numpy as np
+from numpy.typing import NDArray, ArrayLike
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
-from numpy.typing import NDArray
+from tqdm import tqdm
 
 from vicsek.models.particle import Particle
 from vicsek.util.cell_list import CellList
@@ -75,7 +77,7 @@ class Vicsek:
 
         self._cell_list.update()
 
-    def run(self, iterations: int = 10):
+    def run(self, iterations: int = 400):
         for _ in range(iterations):
             self.step()
 
@@ -157,3 +159,29 @@ class Vicsek:
 
         anim = FuncAnimation(fig, animate, frames=frames, interval=interval, blit=True)
         return anim
+
+    def simulate_phase_transition(
+            self,
+            noise_values: ArrayLike,
+            equilibration_steps: int = 400,
+            measurement_steps: int = 300
+    ):
+        order_parameters = []
+        order_fluctuations = []
+
+        for noise in tqdm(noise_values, desc="Noise values", position=0):
+
+            self.run(equilibration_steps)
+
+            measurements = []
+            for _ in tqdm(range(measurement_steps),
+                          desc=f"Measuring η={noise:.3f}",
+                          position=1,
+                          leave=False):
+                self.step()
+                measurements.append(self.order_parameter())
+
+            order_parameters.append(np.mean(measurements))
+            order_fluctuations.append(len(self.particles) * np.var(measurements))  # Susceptibility
+
+        return np.array(order_parameters), np.array(order_fluctuations)
