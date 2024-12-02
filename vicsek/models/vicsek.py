@@ -14,6 +14,9 @@ def _random_unit_vector(n_dimensions: int) -> NDArray:
 
 
 class Vicsek:
+    __slots__ = ('length', 'interaction_range', 'v', 'mu', 'delta_t',
+                 'particles', 'dim', '_cell_list')
+
     def __init__(
             self,
             length: float,

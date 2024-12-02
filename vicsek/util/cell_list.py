@@ -6,6 +6,9 @@ from vicsek.models.particle import Particle
 
 
 class CellList:
+    __slots__ = ('particles', 'box_length', 'interaction_range', 'n_dimensions',
+                 'use_pbc', 'n_cells', 'cell_size', 'neighbor_offsets', 'cells')
+
     def __init__(
             self,
             particles: List[Particle],

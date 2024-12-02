@@ -2,7 +2,10 @@ import numpy as np
 from matplotlib import pyplot as plt
 from numpy.typing import NDArray
 
+
 class Particle:
+    __slots__ = ('_position', '_velocity', 'name', 'type')
+
     def __init__(
         self,
         position: NDArray[float],
