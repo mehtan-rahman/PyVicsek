@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Union
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -92,7 +92,10 @@ class CellList:
             cell_index = self._hash_position(particle.position)
             self.cells[cell_index].append(particle)
 
-    def get_neighbors_by_particle(self, particle: Particle) -> List[Particle]:
+    def get_neighbors(self, particle: Union[Particle, int]) -> List[Particle]:
+        if isinstance(particle, int):
+            particle = self.particles[particle]
+
         if not self.use_pbc:
             if not all(0 <= p < self.box_length for p in particle.position):
                 return []
@@ -127,10 +130,6 @@ class CellList:
         delta = p1.position - p2.position
         delta = delta - self.box_length * np.round(delta / self.box_length)
         return np.linalg.norm(delta)
-
-    def get_neighbors_by_index(self, idx: int) -> List[Particle]:
-        particle = self.particles[idx]
-        return self.get_neighbors_by_particle(particle)
 
     def visualize(
             self,
