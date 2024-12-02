@@ -1,6 +1,7 @@
 from typing import List
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib.animation import FuncAnimation
 from numpy.typing import NDArray
 
 from vicsek.models.particle import Particle
@@ -103,3 +104,53 @@ class Vicsek:
         ax.set_ylim(0, self.length)
         ax.set_aspect('equal')
         return ax
+
+    def animate(
+            self,
+            frames: int = 200,
+            interval: int = 50,
+            particle_scale: float = 10,
+    ) -> FuncAnimation:
+        fig, ax = plt.subplots(figsize=(8, 8))
+        ax.set_xlim(0, self.length)
+        ax.set_ylim(0, self.length)
+        ax.set_aspect('equal')
+
+        positions = np.array([p.position for p in self.particles])
+        orientations = np.arctan2([p.velocity[1] for p in self.particles],
+                                  [p.velocity[0] for p in self.particles])
+
+        qv = ax.quiver(positions[:, 0], positions[:, 1],
+                       np.cos(orientations), np.sin(orientations),
+                       orientations,
+                       clim=[-np.pi, np.pi],
+                       scale=particle_scale,  # arrow size
+                       scale_units='inches',
+                       width=0.003,  # Width of arrow head
+                       headwidth=3,  # Head width relative to width
+                       headlength=5,  # Head length relative to width
+                       headaxislength=4.5,  # Head base relative to width
+                       pivot='mid',  # Center arrows on points
+                       minshaft=0)  # Remove arrow tail
+
+        order_text = ax.text(0.02, 0.98, '', transform=ax.transAxes,
+                             verticalalignment='top')
+
+        def animate(frame):
+            self.step()
+
+            positions = np.array([p.position for p in self.particles])
+            orientations = np.arctan2([p.velocity[1] for p in self.particles],
+                                      [p.velocity[0] for p in self.particles])
+
+            # Update quiver plot
+            qv.set_offsets(positions)
+            qv.set_UVC(np.cos(orientations), np.sin(orientations), orientations)
+
+            order_param = self.order_parameter()
+            order_text.set_text(f'Order: {order_param:.3f}')
+
+            return qv, order_text
+
+        anim = FuncAnimation(fig, animate, frames=frames, interval=interval, blit=True)
+        return anim
