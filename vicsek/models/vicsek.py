@@ -12,7 +12,7 @@ def _random_unit_vector(n_dimensions: int) -> NDArray:
     return vector / np.linalg.norm(vector)
 
 
-class Viscek:
+class Vicsek:
     def __init__(
             self,
             length: float,
