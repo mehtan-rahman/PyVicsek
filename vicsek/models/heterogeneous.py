@@ -8,7 +8,8 @@ from vicsek.models.particle import Particle
 
 class HeterogeneousVicsek(Vicsek):
     __slots__ = ('length', 'interaction_range', 'v', 'mu', 'delta_t',
-                 'particles', 'dim', '_cell_list')
+                 'particles', 'dim', '_cell_list', 'alignment_weights',
+                 'noise_weights')
 
     def __init__(
             self,
