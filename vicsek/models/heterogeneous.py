@@ -2,7 +2,8 @@ from typing import List, Dict, Tuple, NamedTuple
 import numpy as np
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-from vicsek.models.vicsek import Vicsek, _random_unit_vector
+from vicsek.models.vicsek import Vicsek
+from vicsek.util.linalg import _random_unit_vector
 from vicsek.models.particle import Particle
 
 
