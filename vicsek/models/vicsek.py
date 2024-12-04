@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 import numpy as np
 from numpy.typing import NDArray, ArrayLike
@@ -80,6 +80,42 @@ class Vicsek:
     def run(self, iterations: int = 400):
         for _ in range(iterations):
             self.step()
+
+    def equilibrate(
+            self,
+            window_size: int = 100,
+            threshold: float = 0.01,
+            max_steps: int = 1000,
+            check_interval: int = 1,
+            min_steps: int = 250,
+            progress_bar: bool = True
+    ) -> Tuple[bool, int, float]:
+        order_params = []
+        total_steps = 0
+
+        iterator = range(max_steps)
+        if progress_bar:
+            iterator = tqdm(iterator, desc="Equilibrating")
+
+        for step in iterator:
+            self.step()
+            total_steps += 1
+
+            if step % check_interval == 0:
+                order_params.append(self.order_parameter())
+
+                if len(order_params) >= window_size and total_steps >= min_steps:
+                    window = order_params[-window_size:]
+                    variance = np.var(window)
+
+                    if variance < threshold:
+                        if progress_bar:
+                            iterator.close()
+                        return True, total_steps, variance
+
+        if progress_bar:
+            iterator.close()
+        return False, total_steps, np.var(order_params[-window_size:])
 
     def order_parameter(self) -> float:
         velocities = np.array([p.velocity for p in self.particles])
