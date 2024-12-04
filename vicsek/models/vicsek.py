@@ -118,47 +118,69 @@ class Vicsek:
             frames: int = 200,
             interval: int = 50,
             particle_scale: float = 10,
+            legend: Dict[str, str] = None,
     ) -> FuncAnimation:
         fig, ax = plt.subplots(figsize=(8, 8))
         ax.set_xlim(0, self.length)
         ax.set_ylim(0, self.length)
         ax.set_aspect('equal')
 
-        positions = np.array([p.position for p in self.particles])
-        orientations = np.arctan2([p.velocity[1] for p in self.particles],
-                                  [p.velocity[0] for p in self.particles])
+        if legend is None:
+            unique_types = set(p.type for p in self.particles)
+            colors = plt.cm.rainbow(np.linspace(0, 1, len(unique_types)))
+            legend = dict(zip(unique_types, colors))
 
-        qv = ax.quiver(positions[:, 0], positions[:, 1],
-                       np.cos(orientations), np.sin(orientations),
-                       orientations,
-                       clim=[-np.pi, np.pi],
-                       scale=particle_scale,  # arrow size
-                       scale_units='inches',
-                       width=0.003,  # Width of arrow head
-                       headwidth=3,  # Head width relative to width
-                       headlength=5,  # Head length relative to width
-                       headaxislength=4.5,  # Head base relative to width
-                       pivot='mid',  # Center arrows on points
-                       minshaft=0)  # Remove arrow tail
+        quivers = {}
+        for p_type in legend.keys():
+            type_particles = [p for p in self.particles if p.type == p_type]
+            if not type_particles:
+                continue
 
+            positions = np.array([p.position for p in type_particles])
+            orientations = np.arctan2([p.velocity[1] for p in type_particles],
+                                      [p.velocity[0] for p in type_particles])
+
+            qv = ax.quiver(positions[:, 0], positions[:, 1],
+                           np.cos(orientations), np.sin(orientations),
+                           color=legend[p_type],
+                           scale=particle_scale,
+                           scale_units='inches',
+                           width=0.003,
+                           headwidth=3,
+                           headlength=5,
+                           headaxislength=4.5,
+                           pivot='mid',
+                           minshaft=0,
+                           label=p_type)
+
+            quivers[p_type] = {
+                'quiver': qv,
+                'particles': type_particles
+            }
+
+        ax.legend(loc='upper right')
         order_text = ax.text(0.02, 0.98, '', transform=ax.transAxes,
                              verticalalignment='top')
 
         def animate(frame):
             self.step()
+            artists = []
 
-            positions = np.array([p.position for p in self.particles])
-            orientations = np.arctan2([p.velocity[1] for p in self.particles],
-                                      [p.velocity[0] for p in self.particles])
+            for p_type, data in quivers.items():
+                positions = np.array([p.position for p in data['particles']])
+                orientations = np.arctan2([p.velocity[1] for p in data['particles']],
+                                          [p.velocity[0] for p in data['particles']])
 
-            # Update quiver plot
-            qv.set_offsets(positions)
-            qv.set_UVC(np.cos(orientations), np.sin(orientations), orientations)
+                data['quiver'].set_offsets(positions)
+                data['quiver'].set_UVC(np.cos(orientations), np.sin(orientations))
+                artists.append(data['quiver'])
 
+            # Update order parameter
             order_param = self.order_parameter()
             order_text.set_text(f'Order: {order_param:.3f}')
+            artists.append(order_text)
 
-            return qv, order_text
+            return artists
 
         anim = FuncAnimation(fig, animate, frames=frames, interval=interval, blit=True)
         return anim
