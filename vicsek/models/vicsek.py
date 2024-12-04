@@ -8,11 +8,7 @@ from tqdm import tqdm
 
 from vicsek.models.particle import Particle
 from vicsek.util.cell_list import CellList
-
-
-def _random_unit_vector(n_dimensions: int) -> NDArray:
-    vector = np.random.normal(0, 1, n_dimensions)
-    return vector / np.linalg.norm(vector)
+from vicsek.util.linalg import _random_unit_vector
 
 
 class Vicsek:
