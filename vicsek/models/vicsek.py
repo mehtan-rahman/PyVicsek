@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict
 
 import numpy as np
 from numpy.typing import NDArray, ArrayLike
@@ -88,8 +88,9 @@ class Vicsek:
     def visualize(
             self,
             ax: plt.Axes = None,
-            show_velocity: bool = True,
-            show_cells: bool = False
+            show_velocity: bool = False,
+            show_cells: bool = False,
+            legend: Dict[str, str] = None,
     ) -> plt.Axes:
         if ax is None:
             fig, ax = plt.subplots(figsize=(8, 8))
@@ -98,10 +99,12 @@ class Vicsek:
             self._cell_list.visualize(ax=ax, show_cell_grid=True)
 
         for particle in self.particles:
+            color = legend.get(particle.type, 'dimgrey')
+
             particle.visualize(
                 ax=ax,
                 show_velocity=show_velocity,
-                size=50,
+                color=color,
                 alpha=0.7
             )
 
