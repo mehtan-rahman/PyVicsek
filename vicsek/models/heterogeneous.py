@@ -158,7 +158,7 @@ class HeterogeneousVicsek(Vicsek):
         type_orders = {ptype: [] for ptype in self.particle_types}
         type_fluctuations = {ptype: [] for ptype in self.particle_types}
         cross_correlations = {(t1, t2): [] for t1 in self.particle_types
-                              for t2 in self.particle_types if t1 <= t2}
+                              for t2 in self.particle_types}
 
         # Iterate through noise values
         for noise in tqdm(noise_values, desc="Noise values", position=0):
@@ -171,12 +171,10 @@ class HeterogeneousVicsek(Vicsek):
             global_measurements = []
             type_measurements = {ptype: [] for ptype in self.particle_types}
             correlation_measurements = {(t1, t2): [] for t1 in self.particle_types
-                                        for t2 in self.particle_types if t1 <= t2}
+                                        for t2 in self.particle_types}
 
             for _ in tqdm(range(measurement_steps),
-                          desc=f"Measuring η={noise:.3f}",
-                          position=1,
-                          leave=False):
+                          desc=f"Measuring η={noise:.3f}"):
                 self.step()
 
                 # Global order parameter
