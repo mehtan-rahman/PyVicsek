@@ -1,20 +1,13 @@
 from typing import List, Dict, Tuple, NamedTuple
+
 import numpy as np
+from numpy.typing import NDArray
 from matplotlib import pyplot as plt
 from tqdm import tqdm
+
 from vicsek.models.vicsek import Vicsek
 from vicsek.util.linalg import _random_unit_vector
 from vicsek.models.particle import Particle
-
-
-class PhaseTransitionResults(NamedTuple):
-    """Container for phase transition analysis results"""
-    noise_values: np.ndarray
-    global_order: np.ndarray
-    global_susceptibility: np.ndarray
-    type_orders: Dict[str, np.ndarray]
-    type_susceptibilities: Dict[str, np.ndarray]
-    cross_correlations: Dict[Tuple[str, str], np.ndarray]
 
 
 class HeterogeneousVicsek(Vicsek):
@@ -156,118 +149,72 @@ class HeterogeneousVicsek(Vicsek):
 
     def simulate_phase_transition(
             self,
-            noise_values: np.ndarray,
+            noise_values: NDArray,
             equilibration_steps: int = 400,
             measurement_steps: int = 300
-    ) -> PhaseTransitionResults:
-        global_orders = []
-        global_susceptibilities = []
+    ) -> Tuple[NDArray, NDArray, NDArray, NDArray, NDArray]:
+        global_order = []
+        global_fluctuations = []
         type_orders = {ptype: [] for ptype in self.particle_types}
-        type_susceptibilities = {ptype: [] for ptype in self.particle_types}
-        cross_correlations = {
-            (t1, t2): []
-            for i, t1 in enumerate(self.particle_types)
-            for t2 in self.particle_types[i:]
-        }
+        type_fluctuations = {ptype: [] for ptype in self.particle_types}
+        cross_correlations = {(t1, t2): [] for t1 in self.particle_types
+                              for t2 in self.particle_types if t1 <= t2}
 
-        original_noise = self.mu
+        # Iterate through noise values
+        for noise in tqdm(noise_values, desc="Noise values", position=0):
+            self.mu = noise  # Set base noise
 
-        for noise in tqdm(noise_values, desc="Analyzing noise values"):
-            # Set noise and equilibrate
-            self.mu = noise
+            # Equilibration phase
             self.run(equilibration_steps)
 
-            # Initialize measurement arrays
+            # Measurement phase
             global_measurements = []
             type_measurements = {ptype: [] for ptype in self.particle_types}
-            correlation_measurements = {k: [] for k in cross_correlations.keys()}
+            correlation_measurements = {(t1, t2): [] for t1 in self.particle_types
+                                        for t2 in self.particle_types if t1 <= t2}
 
-            # Collect measurements
-            for _ in range(measurement_steps):
+            for _ in tqdm(range(measurement_steps),
+                          desc=f"Measuring η={noise:.3f}",
+                          position=1,
+                          leave=False):
                 self.step()
 
-                # Global order
-                global_order = self.order_parameter()
-                global_measurements.append(global_order)
+                # Global order parameter
+                global_measurements.append(self.order_parameter())
 
-                # Type-specific orders
+                # Type-specific order parameters
                 type_orders_current = self.get_type_specific_order()
-                for ptype in self.particle_types:
-                    type_measurements[ptype].append(type_orders_current.get(ptype, 0.0))
+                for ptype, order in type_orders_current.items():
+                    type_measurements[ptype].append(order)
 
-                # Cross-correlations
+                # Cross-correlations between types
                 correlations = self.compute_cross_correlations()
-                for key in correlation_measurements:
-                    correlation_measurements[key].append(correlations[key])
+                for key, value in correlations.items():
+                    correlation_measurements[key].append(value)
 
-            # Calculate statistics
-            N = len(self.particles)
+            # Store averaged measurements
+            global_order.append(np.mean(global_measurements))
+            global_fluctuations.append(len(self.particles) * np.var(global_measurements))
 
-            # Global quantities
-            global_orders.append(np.mean(global_measurements))
-            global_susceptibilities.append(N * np.var(global_measurements))
-
-            # Type-specific quantities
+            # Store type-specific measurements
             for ptype in self.particle_types:
-                type_orders[ptype].append(np.mean(type_measurements[ptype]))
-                type_susceptibilities[ptype].append(N * np.var(type_measurements[ptype]))
+                if type_measurements[ptype]:  # Check if we have measurements
+                    type_orders[ptype].append(np.mean(type_measurements[ptype]))
+                    type_fluctuations[ptype].append(
+                        len([p for p in self.particles if p.type == ptype]) *
+                        np.var(type_measurements[ptype])
+                    )
 
-            # Cross-correlations
-            for key in cross_correlations:
-                cross_correlations[key].append(np.mean(correlation_measurements[key]))
+            # Store cross-correlation measurements
+            for key in correlation_measurements:
+                if correlation_measurements[key]:  # Check if we have measurements
+                    cross_correlations[key].append(np.mean(correlation_measurements[key]))
 
-        # Restore original noise value
-        self.mu = original_noise
+        # Convert lists to numpy arrays
+        global_order = np.array(global_order)
+        global_fluctuations = np.array(global_fluctuations)
+        type_orders = {k: np.array(v) for k, v in type_orders.items()}
+        type_fluctuations = {k: np.array(v) for k, v in type_fluctuations.items()}
+        cross_correlations = {k: np.array(v) for k, v in cross_correlations.items()}
 
-        return PhaseTransitionResults(
-            noise_values=noise_values,
-            global_order=np.array(global_orders),
-            global_susceptibility=np.array(global_susceptibilities),
-            type_orders={k: np.array(v) for k, v in type_orders.items()},
-            type_susceptibilities={k: np.array(v) for k, v in type_susceptibilities.items()},
-            cross_correlations={k: np.array(v) for k, v in cross_correlations.items()}
-        )
-
-    def find_transition_points(self, results: PhaseTransitionResults) -> Dict[str, float]:
-        transition_points = {}
-
-        peak_idx = np.argmax(results.global_susceptibility)
-        transition_points['global'] = results.noise_values[peak_idx]
-
-        for ptype in self.particle_types:
-            peak_idx = np.argmax(results.type_susceptibilities[ptype])
-            transition_points[f'type_{ptype}'] = results.noise_values[peak_idx]
-
-        return transition_points
-
-    def plot_phase_diagram(self, results: PhaseTransitionResults) -> plt.Figure:
-        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 15))
-
-        # Global order and susceptibility
-        ax1.plot(results.noise_values, results.global_order, 'k-', label='Global Order')
-        ax1.set_xlabel('Noise (η)')
-        ax1.set_ylabel('Order Parameter (φ)')
-        ax1.legend()
-
-        ax2.plot(results.noise_values, results.global_susceptibility, 'r-',
-                 label='Global Susceptibility')
-        ax2.set_xlabel('Noise (η)')
-        ax2.set_ylabel('Susceptibility (χ)')
-        ax2.legend()
-
-        # Type-specific orders
-        for ptype, orders in results.type_orders.items():
-            ax3.plot(results.noise_values, orders, label=f'Type {ptype}')
-        ax3.set_xlabel('Noise (η)')
-        ax3.set_ylabel('Type-Specific Order')
-        ax3.legend()
-
-        # Cross-correlations
-        for (t1, t2), corr in results.cross_correlations.items():
-            ax4.plot(results.noise_values, corr, label=f'{t1}-{t2}')
-        ax4.set_xlabel('Noise (η)')
-        ax4.set_ylabel('Cross-correlation')
-        ax4.legend()
-
-        plt.tight_layout()
-        return fig
+        return global_order, global_fluctuations, type_orders, type_fluctuations, cross_correlations
