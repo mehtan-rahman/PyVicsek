@@ -117,6 +117,16 @@ class Vicsek:
         velocities = np.array([p.velocity for p in self.particles])
         return np.linalg.norm(np.mean(velocities, axis=0)) / self.v
 
+    def order_parameter_evolution(self, steps: int = 750) -> NDArray:
+        order_params = []
+
+        for _ in tqdm(range(steps), desc="Steps"):
+            self.step()
+            order_params.append(self.order_parameter())
+
+        return np.array(order_params)
+
+
     def visualize(
             self,
             ax: plt.Axes = None,
