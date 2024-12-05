@@ -74,7 +74,7 @@ class Vicsek:
         self._cell_list.update()
 
     def run(self, iterations: int = 400):
-        for _ in range(iterations):
+        for _ in tqdm(range(iterations), f'Running {iterations} Steps'):
             self.step()
 
     def equilibrate(
