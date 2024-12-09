@@ -43,8 +43,8 @@ noise_weights = {
 }
 
 legend = {
-    'A': 'red',
-    'B': 'blue',
+    'leader': 'red',
+    'follower': 'blue',
 }
 
 
@@ -64,12 +64,19 @@ noise_values = np.arange(0, 2, 0.1)
 (global_order, global_fluctuations,
  type_orders, type_fluctuations, cross_correlations) = vicsek.simulate_phase_transition(noise_values)
 
+np.save('global_order.npy', global_order)
+np.save('global_fluctuations.npy', global_fluctuations)
+np.save('type_orders.npy', type_orders)
+np.save('type_fluctuations.npy', type_fluctuations)
+np.save('cross_correlations.npy', cross_correlations)
+
+
 fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
 
 # Plot order parameters
 ax1.plot(noise_values, global_order, 'k-', label='Global', linewidth=2)
 for ptype, orders in type_orders.items():
-    ax1.plot(noise_values, orders, f'{legend[ptype]}-', label=f'Type {ptype}', linewidth=2)
+    ax1.plot(noise_values, orders, color=f'{legend[ptype]}', label=f'Type {ptype}', linewidth=2)
 
 ax1.set_xlabel('Noise')
 ax1.set_ylabel('Order Parameter')
@@ -80,7 +87,7 @@ ax1.grid(True)
 # Plot fluctuations
 ax2.plot(noise_values, global_fluctuations, 'k-', label='Global', linewidth=2)
 for ptype, fluct in type_fluctuations.items():
-    ax2.plot(noise_values, fluct, f'{legend[ptype]}-', label=f'Type {ptype}', linewidth=2)
+    ax2.plot(noise_values, fluct, color=f'{legend[ptype]}', label=f'Type {ptype}', linewidth=2)
 
 ax2.set_xlabel('Noise')
 ax2.set_ylabel('Susceptibility')
