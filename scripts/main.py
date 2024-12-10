@@ -1,3 +1,31 @@
+"""
+Simulating a 2D / 3D particle system using the Vicsek model by generating particles with random positions and velocities and assigning them to a cell list for efficient neighbor searching
+
+Modules Used:
+    - numpy: For numerical operations.
+    - matplotlib.pyplot: For visualization.
+    - shapely.Point: For geometric representations of particle positions.
+    - scipy.spatial.transform.Rotation: For generating random rotations in 2D and 3D.
+    - vicsek.models.particle.Particle: Custom particle class.
+    - vicsek.util.cell_list.CellList: Custom CellList class for spatial partitioning.
+
+Simulation Parameters:
+    n_particles (int): Number of particles in the simulation.
+    length (float): Length of the simulation box (assumed square or cubic).
+    dim (int): Dimensionality of the simulation (2D or 3D).
+    v (NDArray): Default velocity vector for particles.
+
+Generated Objects:
+    particles (List[Particle]): A list of Particle objects with random positions and velocities.
+    cell_list (CellList): A CellList object to manage particles and their spatial organization.
+
+Visualization:
+    - Shows the particle positions in a 2D simulation box.
+    - Optionally displays the cell grid, cell labels, and particle labels.
+"""
+
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 from shapely import Point
