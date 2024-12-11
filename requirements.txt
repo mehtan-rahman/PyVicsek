@@ -1,6 +1,5 @@
 numpy
-numba
-shapely
 scipy
 matplotlib
 tqdm
+pytest
