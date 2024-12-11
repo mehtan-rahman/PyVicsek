@@ -14,7 +14,11 @@ from vicsek.util.linalg import _random_unit_vector
 class Vicsek:
     __slots__ = ('length', 'interaction_range', 'v', 'mu', 'delta_t',
                  'particles', 'dim', '_cell_list')
+"""
+A class for simulating the Vicsek model of self-propelled particles.
+This implementation supports periodic boundary conditions, visualization, and simulations of phase transitions.
 
+"""
     def __init__(
             self,
             length: float,
@@ -25,6 +29,19 @@ class Vicsek:
             timestep: float = 1,
             use_pbc: bool = True,
     ) -> None:
+        """
+        Initializes the Vicsek simulation.
+
+        Parameters:
+            length (float): Length of the simulation box.
+            particles (List[Particle]): List of Particle objects in the simulation.
+            interaction_range (float): Range of interaction between particles.
+            speed (float): Speed of the particles.
+            noise_factor (float): Strength of angular noise.
+            timestep (float): Duration of each timestep (default is 1).
+            use_pbc (bool): Whether to use periodic boundary conditions (default is True).
+        """
+        
         self.length = length
         self.interaction_range = interaction_range
         self.v = speed
@@ -41,21 +58,45 @@ class Vicsek:
             n_dimensions=self.dim,
             use_pbc=use_pbc
         )
-        self._cell_list.build()
+        self._cell_list.build()  #Create a cell list for efficient neighbor search
 
     def _compute_average_velocity(self, velocities: NDArray) -> NDArray:
+        """
+        Computes the normalized average velocity of particles.
+
+        Parameters:
+            velocities (NDArray): Array of particle velocities.
+
+        Returns:
+            NDArray: Normalized average velocity vector. If the norm is zero, a random direction is returned.
+        """
+        
         mean_velocity = np.mean(velocities, axis=0)
         norm = np.linalg.norm(mean_velocity)
         return mean_velocity / norm if norm > 0 else _random_unit_vector(self.dim)
 
     def _apply_noise(self, velocity: NDArray) -> NDArray:
+        """
+        Adds angular noise to a velocity vector.
+
+        Parameters:
+            velocity (NDArray): The velocity vector to which noise is applied.
+
+        Returns:
+            NDArray: The noisy velocity vector, normalized to unit length.
+        """
         noise = self.mu * _random_unit_vector(self.dim)
         noisy_velocity = velocity + noise
         return noisy_velocity / np.linalg.norm(noisy_velocity)
 
     def step(self):
+        """
+        Executes a single timestep of the Vicsek simulation.
+
+        Updates particle velocities and positions based on neighbor interactions, with optional periodic boundary conditions.
+        """
         for particle in self.particles:
-            neighbors = self._cell_list.get_neighbors(particle)
+            neighbors = self._cell_list.get_neighbors(particle) #finding neighbors based on the cell list
             all_particles = [particle] + neighbors
 
             velocities = np.array([p.velocity for p in all_particles])
@@ -64,10 +105,10 @@ class Vicsek:
             noisy_direction = self._apply_noise(avg_direction)
             particle.velocity = self.v * noisy_direction
 
-            new_position = particle.position + particle.velocity * self.delta_t
+            new_position = particle.position + particle.velocity * self.delta_t #updating position
 
             if self._cell_list.use_pbc:
-                new_position = new_position % self.length
+                new_position = new_position % self.length #ensuring periodic boundary 
 
             particle.position = new_position
 
@@ -86,6 +127,23 @@ class Vicsek:
             min_steps: int = 250,
             progress_bar: bool = True
     ) -> Tuple[bool, int, float]:
+        """ 
+        Checks if order parameter stabilizes (system equilibrates) within specified window of steps 
+        Parameters:
+            window_size (int): The size of the window used to compute variance for checking stabilization.
+            threshold (float): The variance threshold below which the system is considered equilibrated.
+            max_steps (int): The maximum number of steps to simulate.
+            check_interval (int): The interval at which to check the order parameter.
+            min_steps (int): The minimum number of steps before checking equilibration.
+            progress_bar (bool): Whether to show a progress bar.
+
+        Returns:
+            Tuple[bool, int, float]: A tuple containing:
+                - A boolean indicating whether the system equilibrated.
+                - The total number of steps taken.
+                - The variance of the order parameter at the end of the equilibration.
+        """
+        
         order_params = []
         total_steps = 0
 
@@ -100,7 +158,7 @@ class Vicsek:
             if step % check_interval == 0:
                 order_params.append(self.order_parameter())
 
-                if len(order_params) >= window_size and total_steps >= min_steps:
+                if len(order_params) >= window_size and total_steps >= min_steps: #ensures number of recorded order params
                     window = order_params[-window_size:]
                     variance = np.var(window)
 
@@ -114,10 +172,26 @@ class Vicsek:
         return False, total_steps, np.var(order_params[-window_size:])
 
     def order_parameter(self) -> float:
+    """
+    Computes the order parameter of the system, which measures the alignment of particle velocities.
+
+    Returns:
+        float: The order parameter value, a measure of the average alignment of particles, normalized by the speed.
+    """
         velocities = np.array([p.velocity for p in self.particles])
         return np.linalg.norm(np.mean(velocities, axis=0)) / self.v
 
     def order_parameter_evolution(self, steps: int = 750) -> NDArray:
+    """
+    Tracks the evolution of the order parameter over a number of steps.
+
+    Parameters:
+        steps (int): The number of steps to track the evolution of the order parameter.
+
+    Returns:
+        NDArray: An array containing the order parameter values over the specified number of steps.
+    """
+        
         order_params = []
 
         for _ in tqdm(range(steps), desc="Steps"):
@@ -134,6 +208,8 @@ class Vicsek:
             show_cells: bool = False,
             legend: Dict[str, str] = None,
     ) -> plt.Axes:
+    """ Visualizes the state of the system, including the positions and the velocities, and optionally the cell grid. """
+       
         if ax is None:
             fig, ax = plt.subplots(figsize=(8, 8))
 
@@ -162,6 +238,14 @@ class Vicsek:
             particle_scale: float = 10,
             legend: Dict[str, str] = None,
     ) -> FuncAnimation:
+        """ Creates an animation of particle motion over time. 
+        
+            Parameters:
+                frames (int): The number of frames in the animation.
+                interval (int): The interval (in milliseconds) between frames.
+                particle_scale (float): The scaling factor for the particle arrows.
+                legend (Dict[str, str]): A dictionary mapping particle types to colors for visualization.
+        """
         fig, ax = plt.subplots(figsize=(8, 8))
         ax.set_xlim(0, self.length)
         ax.set_ylim(0, self.length)
@@ -233,6 +317,19 @@ class Vicsek:
             equilibration_steps: int = 400,
             measurement_steps: int = 300
     ):
+        """
+    Simulates the phase transition of the system by running the simulation for different noise values and measuring the order parameter.
+
+    Parameters:
+        noise_values (ArrayLike): An array of noise values (η) to test during the phase transition simulation.
+        equilibration_steps (int): The number of steps to equilibrate the system before measurements.
+        measurement_steps (int): The number of steps to collect measurements of the order parameter.
+
+    Returns:
+        Tuple[NDArray, NDArray]: 
+            - The average order parameter for each noise value.
+            - The order parameter fluctuations (susceptibility) for each noise value.
+    """
         order_parameters = []
         order_fluctuations = []
 
