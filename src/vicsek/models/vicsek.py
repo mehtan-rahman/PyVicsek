@@ -14,11 +14,11 @@ from vicsek.util.linalg import _random_unit_vector
 class Vicsek:
     __slots__ = ('length', 'interaction_range', 'v', 'mu', 'delta_t',
                  'particles', 'dim', '_cell_list')
-"""
-A class for simulating the Vicsek model of self-propelled particles.
-This implementation supports periodic boundary conditions, visualization, and simulations of phase transitions.
-
-"""
+    """
+    A class for simulating the Vicsek model of self-propelled particles.
+    This implementation supports periodic boundary conditions, visualization, and simulations of phase transitions.
+    
+    """
     def __init__(
             self,
             length: float,
@@ -172,25 +172,25 @@ This implementation supports periodic boundary conditions, visualization, and si
         return False, total_steps, np.var(order_params[-window_size:])
 
     def order_parameter(self) -> float:
-    """
-    Computes the order parameter of the system, which measures the alignment of particle velocities.
+        """
+        Computes the order parameter of the system, which measures the alignment of particle velocities.
 
-    Returns:
-        float: The order parameter value, a measure of the average alignment of particles, normalized by the speed.
-    """
+        Returns:
+            float: The order parameter value, a measure of the average alignment of particles, normalized by the speed.
+        """
         velocities = np.array([p.velocity for p in self.particles])
         return np.linalg.norm(np.mean(velocities, axis=0)) / self.v
 
     def order_parameter_evolution(self, steps: int = 750) -> NDArray:
-    """
-    Tracks the evolution of the order parameter over a number of steps.
+        """
+        Tracks the evolution of the order parameter over a number of steps.
 
-    Parameters:
-        steps (int): The number of steps to track the evolution of the order parameter.
+        Parameters:
+            steps (int): The number of steps to track the evolution of the order parameter.
 
-    Returns:
-        NDArray: An array containing the order parameter values over the specified number of steps.
-    """
+        Returns:
+            NDArray: An array containing the order parameter values over the specified number of steps.
+        """
         
         order_params = []
 
@@ -208,7 +208,9 @@ This implementation supports periodic boundary conditions, visualization, and si
             show_cells: bool = False,
             legend: Dict[str, str] = None,
     ) -> plt.Axes:
-    """ Visualizes the state of the system, including the positions and the velocities, and optionally the cell grid. """
+        """
+        Visualizes the state of the system, including the positions and the velocities, and optionally the cell grid.
+        """
        
         if ax is None:
             fig, ax = plt.subplots(figsize=(8, 8))
@@ -318,18 +320,18 @@ This implementation supports periodic boundary conditions, visualization, and si
             measurement_steps: int = 300
     ):
         """
-    Simulates the phase transition of the system by running the simulation for different noise values and measuring the order parameter.
+        Simulates the phase transition of the system by running the simulation for different noise values and measuring the order parameter.
 
-    Parameters:
-        noise_values (ArrayLike): An array of noise values (η) to test during the phase transition simulation.
-        equilibration_steps (int): The number of steps to equilibrate the system before measurements.
-        measurement_steps (int): The number of steps to collect measurements of the order parameter.
+        Parameters:
+            noise_values (ArrayLike): An array of noise values (η) to test during the phase transition simulation.
+            equilibration_steps (int): The number of steps to equilibrate the system before measurements.
+            measurement_steps (int): The number of steps to collect measurements of the order parameter.
 
-    Returns:
-        Tuple[NDArray, NDArray]: 
-            - The average order parameter for each noise value.
-            - The order parameter fluctuations (susceptibility) for each noise value.
-    """
+        Returns:
+            Tuple[NDArray, NDArray]:
+                - The average order parameter for each noise value.
+                - The order parameter fluctuations (susceptibility) for each noise value.
+        """
         order_parameters = []
         order_fluctuations = []
 
