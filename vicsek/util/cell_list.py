@@ -6,49 +6,25 @@ from vicsek.models.particle import Particle
 
 
 class CellList:
+    """
+    Cell list data structure for efficient neighbor finding.
 
-     """
-    Implements a cell list data structure for efficient neighbor searching in particle-based simulations
+    Divides a simulation box into cells and sorts particles into cells based
+    on their position. Allows efficient retrieval of neighboring particles within
+    a certain interaction range.
 
     Attributes:
-        particles (List[Particle]): List of Particle objects in the simulation.
-        box_length (float): Length of the simulation box (assumed to be a cube or square).
-        interaction_range (float): Maximum distance within which particles interact.
-        n_dimensions (int): Number of spatial dimensions (default is 2).
-        use_pbc (bool): Whether periodic boundary conditions (PBC) are used (default is True).
-        n_cells (int): Number of cells per dimension.
-        cell_size (float): Length of each cell in the grid.
-        neighbor_offsets (NDArray): Relative offsets for neighboring cells based on PBC or non-PBC.
-        cells (Dict[Tuple[int, ...], List[Particle]]): Dictionary mapping cell indices to particles within those cells.
-
-    Methods:
-        __init__(particles, box_length, interaction_range, n_dimensions=2, use_pbc=True):
-            Initializes the cell list with particles, grid properties, and boundary conditions
-
-        _compute_non_pbc_neighbor_offsets():
-            Computes valid neighbor cell offsets when periodic boundary conditions are not used
-
-        _hash_position(position: NDArray) -> Tuple[int, ...]:
-            Maps a particle's position to its corresponding cell index in the grid
-
-        build() -> None:
-            Initializes the cell list grid and assigns particles to their respective cells
-
-        update() -> None:
-            Updates the cell list and reassigns particles their new positions
-
-        get_neighbors(particle: Union[Particle, int]) -> List[Particle]:
-            Retrieves neighboring particles within the interaction range 
-
-        _minimum_image_distance(p1: Particle, p2: Particle) -> float:
-            Calculates the minimum image distance between two particles 
-            
-        visualize(ax: plt.Axes = None, show_cell_grid: bool = False,
-                  label_cells: bool = False, label_particles: bool = False) -> plt.Axes:
-            Visualizes the cell list and particles in the simulation box
+        particles (List[Particle]): List of particles.
+        box_length (float): Length of the simulation box.
+        interaction_range (float): Maximum interaction distance between particles.
+        n_dimensions (int): Number of spatial dimensions (default 2).
+        use_pbc (bool): Whether to use periodic boundary conditions (default True).
+        n_cells (int): Number of cells along each dimension.
+        cell_size (float): Size of each cell.
+        neighbor_offsets (NDArray): Offsets to neighboring cells.
+        cells (Dict[Tuple[int, ...], List[Particle]]): Dictionary mapping cell indices to lists of particles.
     """
 
-    
     __slots__ = ('particles', 'box_length', 'interaction_range', 'n_dimensions',
                  'use_pbc', 'n_cells', 'cell_size', 'neighbor_offsets', 'cells')
 
@@ -60,6 +36,16 @@ class CellList:
             n_dimensions: int = 2,
             use_pbc: bool = True
     ):
+        """
+        Initialize a CellList.
+
+        Args:
+            particles: List of particles.
+            box_length: Length of the simulation box.
+            interaction_range: Maximum interaction distance between particles.
+            n_dimensions: Number of spatial dimensions (default 2).
+            use_pbc: Whether to use periodic boundary conditions (default True).
+        """
         self.particles = particles
         self.box_length = box_length
         self.interaction_range = interaction_range
@@ -79,6 +65,7 @@ class CellList:
         self.cells: Dict[Tuple[int, ...], List[Particle]] = {}
 
     def _compute_non_pbc_neighbor_offsets(self):
+        """Compute neighbor offsets for non-periodic boundary conditions."""
         base_offsets = np.array(np.meshgrid(*[[-1, 0, 1]] * self.n_dimensions)).T.reshape(-1, self.n_dimensions)
         valid_offsets = []
 
@@ -94,6 +81,15 @@ class CellList:
         self.neighbor_offsets = np.array(valid_offsets)
 
     def _hash_position(self, position: NDArray) -> Tuple[int, ...]:
+        """
+        Hash a position to a cell index.
+
+        Args:
+            position: Position vector.
+
+        Returns:
+            Tuple of cell indices.
+        """
         indices = (position / self.cell_size).astype(int)
         indices = np.flipud(indices)
 
@@ -107,6 +103,7 @@ class CellList:
         return cell_indices
 
     def build(self) -> None:
+        """Build the cell list by assigning particles to cells."""
         self.cells = {
             tuple(idx): []
             for idx in np.ndindex((self.n_cells,) * self.n_dimensions)
@@ -120,6 +117,7 @@ class CellList:
             self.cells[cell_index].append(particle)
 
     def update(self) -> None:
+        """Update the cell list after particles have moved."""
         for cell in self.cells.values():
             cell.clear()
 
@@ -131,6 +129,15 @@ class CellList:
             self.cells[cell_index].append(particle)
 
     def get_neighbors(self, particle: Union[Particle, int]) -> List[Particle]:
+        """
+        Get neighboring particles within the interaction range.
+
+        Args:
+            particle: Particle or index of particle to find neighbors for.
+
+        Returns:
+            List of neighboring particles.
+        """
         if isinstance(particle, int):
             particle = self.particles[particle]
 
@@ -164,44 +171,16 @@ class CellList:
         return neighbors
 
     def _minimum_image_distance(self, p1: Particle, p2: Particle) -> float:
+        """
+        Compute minimum image distance between two particles.
+
+        Args:
+            p1: First particle.
+            p2: Second particle.
+
+        Returns:
+            Minimum image distance.
+        """
         delta = p1.position - p2.position
         delta = delta - self.box_length * np.round(delta / self.box_length)
         return np.linalg.norm(delta)
-
-    def visualize(
-            self,
-            ax: plt.Axes = None,
-            show_cell_grid: bool = False,
-            label_cells: bool = False,
-            label_particles: bool = False
-    ) -> plt.Axes:
-        if ax is None:
-            fig, ax = plt.subplots(figsize=(10, 10))
-
-        ax.set_xlim(0, self.box_length)
-        ax.set_ylim(0, self.box_length)
-
-        if show_cell_grid and self.n_dimensions <= 2:
-            for i in range(self.n_cells + 1):
-                pos = i * self.cell_size
-                ax.axvline(x=pos, color='black', alpha=0.3, linestyle='-')
-                ax.axhline(y=pos, color='black', alpha=0.3, linestyle='-')
-
-                if label_cells and i < self.n_cells:
-                    for j in range(self.n_cells):
-                        center_x = (j + 0.5) * self.cell_size
-                        center_y = (i + 0.5) * self.cell_size
-                        ax.text(center_x, center_y, f'({i},{j})',
-                                ha='center', va='center', alpha=0.5)
-
-        for i, particle in enumerate(self.particles):
-            pos = particle.position[:2]
-            ax.scatter(pos[0], pos[1], c='dimgrey', s=50, alpha=0.7)
-            if label_particles:
-                ax.text(pos[0], pos[1], str(i), ha='right', va='bottom')
-
-        ax.set_aspect('equal')
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-
-        return ax

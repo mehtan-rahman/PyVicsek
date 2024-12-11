@@ -11,7 +11,25 @@ from vicsek.models.particle import Particle
 
 
 class HeterogeneousVicsek(Vicsek):
-    """Enhanced Vicsek model with heterogeneous particle interactions and phase analysis"""
+    """
+    Enhanced Vicsek model with heterogeneous particle interactions and phase analysis.
+
+    This class extends the base Vicsek model to include type-specific alignment
+    and noise weights, allowing for more complex collective behavior.
+
+    Attributes:
+        length (float): Length of the simulation box.
+        interaction_range (float): Interaction range of particles.
+        v (float): Speed of particles.
+        mu (float): Base noise factor.
+        delta_t (float): Time step size.
+        particles (List[Particle]): List of particles in the simulation.
+        dim (int): Number of dimensions.
+        _cell_list (CellList): Cell list for efficient neighbor searching.
+        alignment_weights (Dict[Tuple[str, str], float]): Alignment weights between particle types.
+        noise_weights (Dict[Tuple[str, str], float]): Noise weights between particle types.
+        particle_types (List[str]): List of unique particle types in the simulation.
+    """
 
     __slots__ = ('length', 'interaction_range', 'v', 'mu', 'delta_t',
                  'particles', 'dim', '_cell_list', 'alignment_weights',
@@ -29,6 +47,20 @@ class HeterogeneousVicsek(Vicsek):
             timestep: float = 1,
             use_pbc: bool = True,
     ) -> None:
+        """
+        Initialize a HeterogeneousVicsek simulation.
+
+        Args:
+            length: Length of the simulation box.
+            particles: List of particles in the simulation.
+            interaction_range: Interaction range of particles.
+            speed: Speed of particles.
+            base_noise: Base noise factor.
+            alignment_weights: Dictionary of alignment weights between particle types.
+            noise_weights: Dictionary of noise weights between particle types.
+            timestep: Time step size (default 1).
+            use_pbc: Whether to use periodic boundary conditions (default True).
+        """
         super().__init__(
             length=length,
             particles=particles,
@@ -51,7 +83,16 @@ class HeterogeneousVicsek(Vicsek):
                     raise ValueError(f"Missing noise weight for types {type1} and {type2}")
 
     def _compute_weighted_velocity(self, particle: Particle, neighbors: List[Particle]) -> np.ndarray:
-        """Compute weighted average velocity considering particle types"""
+        """
+        Compute the weighted average velocity considering particle types.
+
+        Args:
+            particle: The focal particle.
+            neighbors: List of neighboring particles.
+
+        Returns:
+            The weighted average velocity vector.
+        """
         if not neighbors:
             return particle.velocity / np.linalg.norm(particle.velocity)
 
@@ -75,7 +116,16 @@ class HeterogeneousVicsek(Vicsek):
         return mean_velocity / norm if norm > 0 else _random_unit_vector(self.dim)
 
     def _compute_effective_noise(self, particle: Particle, neighbors: List[Particle]) -> float:
-        """Compute effective noise based on particle types"""
+        """
+        Compute the effective noise based on particle types.
+
+        Args:
+            particle: The focal particle.
+            neighbors: List of neighboring particles.
+
+        Returns:
+            The effective noise value.
+        """
         if not neighbors:
             return self.mu * self.noise_weights[(particle.type, particle.type)]
 
@@ -88,7 +138,7 @@ class HeterogeneousVicsek(Vicsek):
         return self.mu * np.mean(weights)
 
     def step(self):
-        """Execute one timestep of the simulation"""
+        """Execute one time step of the simulation."""
         for particle in self.particles:
             neighbors = self._cell_list.get_neighbors(particle)
 
@@ -110,7 +160,12 @@ class HeterogeneousVicsek(Vicsek):
         self._cell_list.update()
 
     def get_type_specific_order(self) -> Dict[str, float]:
-        """Calculate order parameters for each particle type"""
+        """
+        Calculate the order parameters for each particle type.
+
+        Returns:
+            Dictionary mapping particle types to their respective order parameters.
+        """
         type_velocities = {}
         type_counts = {}
 
@@ -129,7 +184,12 @@ class HeterogeneousVicsek(Vicsek):
         }
 
     def compute_cross_correlations(self) -> Dict[Tuple[str, str], float]:
-        """ Compute cross-correlation between mean velocities """
+        """
+        Compute the cross-correlations between mean velocities of particle types.
+
+        Returns:
+            Dictionary mapping pairs of particle types to their velocity cross-correlation.
+        """
         correlations = {}
         for i, type1 in enumerate(self.particle_types):
             for type2 in self.particle_types[i:]:  # Upper triangle only
@@ -153,7 +213,23 @@ class HeterogeneousVicsek(Vicsek):
             noise_values: NDArray,
             equilibration_steps: int = 400,
             measurement_steps: int = 300
-    ) -> Tuple[NDArray, NDArray, NDArray, NDArray, NDArray]:
+    ) -> Tuple[NDArray, NDArray, Dict[str, NDArray], Dict[str, NDArray], Dict[Tuple[str, str], NDArray]]:
+        """
+        Simulate a phase transition by varying the noise parameter.
+
+        Args:
+            noise_values: Array of noise values to simulate.
+            equilibration_steps: Number of steps to equilibrate at each noise value (default 400).
+            measurement_steps: Number of steps to take measurements at each noise value (default 300).
+
+        Returns:
+            A tuple containing:
+            - Global order parameters
+            - Global order parameter fluctuations (susceptibility)
+            - Dictionary of type-specific order parameters
+            - Dictionary of type-specific order parameter fluctuations
+            - Dictionary of cross-correlations between particle types
+        """
         global_order = []
         global_fluctuations = []
         type_orders = {ptype: [] for ptype in self.particle_types}

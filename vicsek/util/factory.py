@@ -9,7 +9,21 @@ def initialize_random_particles(
         n_dimensions: int,
         particle_type: str = 'particle',
         seed: int = None,
-):
+) -> List[Particle]:
+    """
+    Initialize a list of particles with random positions and velocities.
+
+    Args:
+        n_particles: Number of particles to initialize.
+        box_length: Length of the simulation box.
+        speed: Speed of the particles.
+        n_dimensions: Number of spatial dimensions.
+        particle_type: Type of the particles (default 'particle').
+        seed: Seed for the random number generator (default None).
+
+    Returns:
+        List of initialized particles.
+    """
     particles = []
     rng = np.random.default_rng(seed)
 

@@ -4,6 +4,13 @@ from numpy.typing import NDArray
 
 
 class Particle:
+    """
+    A class representing a particle in a simulation.
+
+    Attributes:
+        name (str): Name of the particle.
+        type (str): Type of the particle.
+    """
     __slots__ = ('_position', '_velocity', 'name', 'type')
 
     def __init__(
@@ -13,32 +20,80 @@ class Particle:
         name: str,
         type: str
     ):
+        """
+        Initialize a Particle instance.
+
+        Args:
+            position: Initial position of the particle.
+            velocity: Initial velocity of the particle.
+            name: Name of the particle.
+            type: Type of the particle.
+        """
         self._position = np.array(position) if not isinstance(position, np.ndarray) else position
         self._velocity = np.array(velocity) if not isinstance(velocity, np.ndarray) else velocity
 
         self.name = name
         self.type = type
 
-    def __sub__(self, other):
+    def __sub__(self, other: 'Particle') -> float:
+        """
+        Compute the Euclidean distance between this particle and another.
+
+        Args:
+            other: The other particle.
+
+        Returns:
+            The Euclidean distance between the particles.
+        """
         return np.linalg.norm(other.position - self.position)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """
+        Return a string representation of the Particle.
+
+        Returns:
+            String representation of the Particle.
+        """
         return f"Particle(name={self.name}, pos={self.position})"
 
     @property
-    def position(self):
+    def position(self) -> NDArray[float]:
+        """
+        Get the current position of the particle.
+
+        Returns:
+            The current position.
+        """
         return self._position
 
     @position.setter
-    def position(self, new_position):
+    def position(self, new_position: NDArray[float]):
+        """
+        Set a new position for the particle.
+
+        Args:
+            new_position: The new position.
+        """
         self._position = new_position
 
     @property
-    def velocity(self):
+    def velocity(self) -> NDArray[float]:
+        """
+        Get the current velocity of the particle.
+
+        Returns:
+            The current velocity.
+        """
         return self._velocity
 
     @velocity.setter
-    def velocity(self, new_velocity):
+    def velocity(self, new_velocity: NDArray[float]):
+        """
+        Set a new velocity for the particle.
+
+        Args:
+            new_velocity: The new velocity.
+        """
         self._velocity = new_velocity
 
     def visualize(
@@ -50,7 +105,20 @@ class Particle:
             size: int = 50,
             alpha: float = 1.0
     ) -> plt.Axes:
-        """Visualize a particle with optional velocity arrow."""
+        """
+        Visualize the particle with an optional velocity arrow.
+
+        Args:
+            ax: Matplotlib axes to plot on. If None, a new figure is created.
+            label: Whether to label the particle with its name.
+            show_velocity: Whether to show the velocity arrow.
+            color: Color of the particle marker and arrow.
+            size: Size of the particle marker.
+            alpha: Opacity of the particle marker and arrow.
+
+        Returns:
+            The matplotlib axes with the particle plotted.
+        """
         if ax is None:
             fig, ax = plt.subplots()
 
