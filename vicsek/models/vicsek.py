@@ -64,7 +64,7 @@ Parameters
         return mean_velocity / norm if norm > 0 else _random_unit_vector(self.dim)
 
     def _apply_noise(self, velocity: NDArray) -> NDArray:
-    """ Adding noise to velocity"""
+    """ Adds noise to velocity"""
         noise = self.mu * _random_unit_vector(self.dim)
         noisy_velocity = velocity + noise
         return noisy_velocity / np.linalg.norm(noisy_velocity)
@@ -80,10 +80,10 @@ Parameters
             noisy_direction = self._apply_noise(avg_direction)
             particle.velocity = self.v * noisy_direction
 
-            new_position = particle.position + particle.velocity * self.delta_t
+            new_position = particle.position + particle.velocity * self.delta_t #updating position
 
             if self._cell_list.use_pbc:
-                new_position = new_position % self.length
+                new_position = new_position % self.length #ensuring periodic boundary 
 
             particle.position = new_position
 
@@ -105,12 +105,12 @@ Parameters
         """ 
         Checks if order parameter stabilizes (system equilibrates) within specified window of steps 
         Parameters:
-            window_size (int): The size of the window used to compute variance for checking stabilization (default is 100).
-            threshold (float): The variance threshold below which the system is considered equilibrated (default is 0.01).
-            max_steps (int): The maximum number of steps to simulate (default is 1000).
-            check_interval (int): The interval at which to check the order parameter (default is 1).
-            min_steps (int): The minimum number of steps before checking equilibration (default is 250).
-            progress_bar (bool): Whether to show a progress bar (default is True).
+            window_size (int): The size of the window used to compute variance for checking stabilization.
+            threshold (float): The variance threshold below which the system is considered equilibrated.
+            max_steps (int): The maximum number of steps to simulate.
+            check_interval (int): The interval at which to check the order parameter.
+            min_steps (int): The minimum number of steps before checking equilibration.
+            progress_bar (bool): Whether to show a progress bar.
 
         Returns:
             Tuple[bool, int, float]: A tuple containing:
@@ -133,7 +133,7 @@ Parameters
             if step % check_interval == 0:
                 order_params.append(self.order_parameter())
 
-                if len(order_params) >= window_size and total_steps >= min_steps:
+                if len(order_params) >= window_size and total_steps >= min_steps: #ensures number of recorded order params
                     window = order_params[-window_size:]
                     variance = np.var(window)
 
