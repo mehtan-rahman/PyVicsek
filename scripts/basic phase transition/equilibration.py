@@ -1,20 +1,3 @@
-"""
-Simulating the Vicsek model for particles and analyzing the equilibration behavior of the order parameter (φ) for varying levels of noise. 
-The script generates a plot of how the order parameter evolves over time for different noise values.
-
-Functions:
-analyze_equilibration(noise_values, n_steps, n_particles, box_length, speed):
-    Simulates the Vicsek model for given parameters and visualizes the order parameter's 
-    evolution over time for different noise levels. Returns the figure object of the generated plot.
-
-    Parameters:
-    - noise_values (list of floats): List of noise values (η) to analyze.
-    - n_steps (int): Number of simulation steps for each noise value.
-    - n_particles (int): Number of particles in the simulation.
-    - box_length (float): Length of the simulation box (assumed to be square).
-    - speed (float): Constant speed of particles.
-
-"""
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
