@@ -1,6 +1,6 @@
 [project]
-name = "viscek"
-version = "0.2.0"
+name = "pyvicsek"
+version = "0.1.0"
 dependencies = [
   "numpy",
   "matplotlib",
