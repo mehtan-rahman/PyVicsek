@@ -4,7 +4,7 @@ from shapely import Point
 from scipy.spatial.transform import Rotation
 
 from vicsek.models.particle import Particle
-from vicsek.util.cell_list import CellList
+from src.vicsek.util.cell_list import CellList
 
 
 n_particles = 1024
