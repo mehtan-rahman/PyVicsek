@@ -1,12 +1,10 @@
 [project]
 name = "viscek"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
-  "numba",
   "numpy",
-  "scipy",
   "matplotlib",
-  "shapely"
+  "tqdm"
 ]
 requires-python = ">=3.10"
 authors = [
@@ -15,7 +13,6 @@ authors = [
 maintainers = [
     {name = "Mehtan Rahman", email = "mehtan.rahman@utexas.edu"},
 ]
-#description = "Python Distribution of "
 readme = "README.md"
 license = {file = "LICENSE"}
 classifiers = [
