@@ -16,15 +16,7 @@ class Vicsek:
                  'particles', 'dim', '_cell_list')
 """
 A class for simulating the Vicsek model of self-propelled particles.
-
-Parameters
-    length (float): Length of the simulation box.
-    particles (List[Particle]): List of particles in the simulation.
-    interaction_range (float): Range of interaction between particles.
-    speed (float): Speed of the particles.
-    noise_factor (float): Strength of the angular noise.
-    timestep (float): Duration of a single timestep.
-    use_pbc (bool): Whether to use periodic boundary conditions.
+This implementation supports periodic boundary conditions, visualization, and simulations of phase transitions.
 
 """
     def __init__(
@@ -37,6 +29,19 @@ Parameters
             timestep: float = 1,
             use_pbc: bool = True,
     ) -> None:
+        """
+        Initializes the Vicsek simulation.
+
+        Parameters:
+            length (float): Length of the simulation box.
+            particles (List[Particle]): List of Particle objects in the simulation.
+            interaction_range (float): Range of interaction between particles.
+            speed (float): Speed of the particles.
+            noise_factor (float): Strength of angular noise.
+            timestep (float): Duration of each timestep (default is 1).
+            use_pbc (bool): Whether to use periodic boundary conditions (default is True).
+        """
+        
         self.length = length
         self.interaction_range = interaction_range
         self.v = speed
@@ -56,20 +61,40 @@ Parameters
         self._cell_list.build()  #Create a cell list for efficient neighbor search
 
     def _compute_average_velocity(self, velocities: NDArray) -> NDArray:
-        """Computes normalized average velocity of particles. 
-            If the norm is zero, a random direction is returned. """
+        """
+        Computes the normalized average velocity of particles.
+
+        Parameters:
+            velocities (NDArray): Array of particle velocities.
+
+        Returns:
+            NDArray: Normalized average velocity vector. If the norm is zero, a random direction is returned.
+        """
         
         mean_velocity = np.mean(velocities, axis=0)
         norm = np.linalg.norm(mean_velocity)
         return mean_velocity / norm if norm > 0 else _random_unit_vector(self.dim)
 
     def _apply_noise(self, velocity: NDArray) -> NDArray:
-    """ Adds noise to velocity"""
+        """
+        Adds angular noise to a velocity vector.
+
+        Parameters:
+            velocity (NDArray): The velocity vector to which noise is applied.
+
+        Returns:
+            NDArray: The noisy velocity vector, normalized to unit length.
+        """
         noise = self.mu * _random_unit_vector(self.dim)
         noisy_velocity = velocity + noise
         return noisy_velocity / np.linalg.norm(noisy_velocity)
 
     def step(self):
+        """
+        Executes a single timestep of the Vicsek simulation.
+
+        Updates particle velocities and positions based on neighbor interactions, with optional periodic boundary conditions.
+        """
         for particle in self.particles:
             neighbors = self._cell_list.get_neighbors(particle) #finding neighbors based on the cell list
             all_particles = [particle] + neighbors
@@ -161,7 +186,7 @@ Parameters
     Tracks the evolution of the order parameter over a number of steps.
 
     Parameters:
-        steps (int): The number of steps to track the evolution of the order parameter (default is 750).
+        steps (int): The number of steps to track the evolution of the order parameter.
 
     Returns:
         NDArray: An array containing the order parameter values over the specified number of steps.
