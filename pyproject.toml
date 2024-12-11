@@ -1,6 +1,6 @@
 [project]
 name = "pyvicsek"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
   "numpy",
   "matplotlib",
@@ -20,4 +20,4 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/mehtan-rahman/PyVicsek"
+Repository = "https://github.com/mehtan-rahman/PyVicsek`1   2 "
