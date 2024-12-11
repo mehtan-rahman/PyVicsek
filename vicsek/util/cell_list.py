@@ -6,6 +6,49 @@ from vicsek.models.particle import Particle
 
 
 class CellList:
+
+     """
+    Implements a cell list data structure for efficient neighbor searching in particle-based simulations
+
+    Attributes:
+        particles (List[Particle]): List of Particle objects in the simulation.
+        box_length (float): Length of the simulation box (assumed to be a cube or square).
+        interaction_range (float): Maximum distance within which particles interact.
+        n_dimensions (int): Number of spatial dimensions (default is 2).
+        use_pbc (bool): Whether periodic boundary conditions (PBC) are used (default is True).
+        n_cells (int): Number of cells per dimension.
+        cell_size (float): Length of each cell in the grid.
+        neighbor_offsets (NDArray): Relative offsets for neighboring cells based on PBC or non-PBC.
+        cells (Dict[Tuple[int, ...], List[Particle]]): Dictionary mapping cell indices to particles within those cells.
+
+    Methods:
+        __init__(particles, box_length, interaction_range, n_dimensions=2, use_pbc=True):
+            Initializes the cell list with particles, grid properties, and boundary conditions
+
+        _compute_non_pbc_neighbor_offsets():
+            Computes valid neighbor cell offsets when periodic boundary conditions are not used
+
+        _hash_position(position: NDArray) -> Tuple[int, ...]:
+            Maps a particle's position to its corresponding cell index in the grid
+
+        build() -> None:
+            Initializes the cell list grid and assigns particles to their respective cells
+
+        update() -> None:
+            Updates the cell list and reassigns particles their new positions
+
+        get_neighbors(particle: Union[Particle, int]) -> List[Particle]:
+            Retrieves neighboring particles within the interaction range 
+
+        _minimum_image_distance(p1: Particle, p2: Particle) -> float:
+            Calculates the minimum image distance between two particles 
+            
+        visualize(ax: plt.Axes = None, show_cell_grid: bool = False,
+                  label_cells: bool = False, label_particles: bool = False) -> plt.Axes:
+            Visualizes the cell list and particles in the simulation box
+    """
+
+    
     __slots__ = ('particles', 'box_length', 'interaction_range', 'n_dimensions',
                  'use_pbc', 'n_cells', 'cell_size', 'neighbor_offsets', 'cells')
 

@@ -129,6 +129,7 @@ class HeterogeneousVicsek(Vicsek):
         }
 
     def compute_cross_correlations(self) -> Dict[Tuple[str, str], float]:
+        """ Compute cross-correlation between mean velocities """
         correlations = {}
         for i, type1 in enumerate(self.particle_types):
             for type2 in self.particle_types[i:]:  # Upper triangle only

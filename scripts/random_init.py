@@ -1,3 +1,25 @@
+"""
+Vicsek Model Simulation Script
+
+This script initializes a Vicsek model simulation, which demonstrates collective behavior in a system of particles.
+The particles interact within a defined range, aligning their velocities while being influenced by noise. 
+Periodic boundary conditions (PBC) are used to ensure particles wrap around when they leave the simulation box.
+
+Classes and Functions:
+    - Particle: Represents individual particles with position, velocity, and metadata.
+    - Vicsek: Implements the Vicsek model simulation and animation.
+    - Rotation: Generates random rotation matrices.
+
+Constants:
+    - n_particles: Number of particles 
+    - length: Length of the box 
+    - dim: Dimensionality of the simulation 
+    - v: velocity vector for the particles
+
+Output:
+    - An animated visualization of particles demonstrating collective motion 
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 from shapely import Point
