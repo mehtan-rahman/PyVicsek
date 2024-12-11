@@ -8,9 +8,7 @@ VicsekPy is best run on Python 3.9+ and is supported by [numpy](https://github.c
 
 To download VicsekPy, run the following commands in a UNIX terminal: 
 ```
-git clone https://github.com/mehtan-rahman/PyVicsek
-cd vicsek
-pip install .
+pip install pyvicsek
 ```
 
 ## Examples
@@ -113,7 +111,6 @@ You can find more information on the `Vicsek` class as well as other classes in 
 
 ## Roadmap
 If given more time, we would like to spend some time working on the following things for this library: 
-- PyPI support.
 - Higher dimensional testing.
 - Lyapunov analysis of phase dimensions (based on this [paper](https://doi.org/10.1103/PhysRevE.105.014213)). 
 - Geometry support for particles and boundaries using [shapely](https://github.com/shapely/shapely). 
