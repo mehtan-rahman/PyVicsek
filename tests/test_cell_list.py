@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from vicsek.models.particle import Particle
-from src.vicsek.util.cell_list import CellList
+from vicsek.util.cell_list import CellList
 
 
 @pytest.fixture

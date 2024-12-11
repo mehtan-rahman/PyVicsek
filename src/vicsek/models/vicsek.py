@@ -7,7 +7,7 @@ from matplotlib.animation import FuncAnimation
 from tqdm import tqdm
 
 from vicsek.models.particle import Particle
-from src.vicsek.util.cell_list import CellList
+from vicsek.util.cell_list import CellList
 from vicsek.util.linalg import _random_unit_vector
 
 
