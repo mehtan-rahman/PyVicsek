@@ -107,7 +107,7 @@ anim = vicsek.animate(frames=200, legend=legend)
 anim.save(filename='hetero_example.gif')
 ```
 
-![](https://github.com/mehtan-rahman/PyVicsek/blob/main/scripts/heterogeneous/antagonistic/gif.py)
+![](https://github.com/mehtan-rahman/PyVicsek/blob/main/scripts/heterogeneous/antagonistic/antagonistic.gif)
 
 You can find more information on the `Vicsek` class as well as other classes in the doc-strings located in the files of the `vicsek` directory. You can also find further examples in the `scripts` directory, where they are organized by system type.
 
