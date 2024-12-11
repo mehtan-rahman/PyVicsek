@@ -20,4 +20,4 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/mehtan-rahman/Viscek-Model"
+Repository = "https://github.com/mehtan-rahman/PyVicsek"
