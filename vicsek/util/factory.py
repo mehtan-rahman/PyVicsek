@@ -1,4 +1,7 @@
+from typing import List
+
 import numpy as np
+
 from vicsek.models.particle import Particle
 
 
