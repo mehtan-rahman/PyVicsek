@@ -1,23 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "pyvicsek"
 version = "0.1.1"
-dependencies = [
-  "numpy",
-  "matplotlib",
-  "tqdm"
-]
+description = "Simulation of the Vicsek model of collective motion in N dimensions, with periodic boundaries and heterogeneous particle types"
+readme = "README.md"
 requires-python = ">=3.10"
+license = {file = "LICENSE"}
 authors = [
     {name = "Mehtan Rahman", email = "mehtan.rahman@utexas.edu"},
 ]
 maintainers = [
     {name = "Mehtan Rahman", email = "mehtan.rahman@utexas.edu"},
 ]
-readme = "README.md"
-license = {file = "LICENSE"}
+keywords = ["vicsek", "collective motion", "active matter", "self-propelled particles", "simulation"]
 classifiers = [
-  "Programming Language :: Python"
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+  "numpy",
+  "matplotlib",
+  "tqdm",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "hypothesis"]
+
 [project.urls]
-Repository = "https://github.com/mehtan-rahman/PyVicsek`1   2 "
+Repository = "https://github.com/mehtan-rahman/PyVicsek"
+Issues = "https://github.com/mehtan-rahman/PyVicsek/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
