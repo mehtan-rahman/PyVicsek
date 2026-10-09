@@ -32,7 +32,9 @@ def initialize_random_particles(
 
     for i in range(n_particles):
         position = rng.uniform(0, box_length, size=n_dimensions)
-        velocity = speed * rng.uniform(-1, 1, size=n_dimensions)
+        direction = rng.normal(0, 1, size=n_dimensions)
+        direction = direction / np.linalg.norm(direction)
+        velocity = speed * direction  # |velocity| == speed, as documented
 
         particles.append(Particle(
             position=position,

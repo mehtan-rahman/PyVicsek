@@ -12,13 +12,14 @@ from vicsek.util.linalg import _random_unit_vector
 
 
 class Vicsek:
-    __slots__ = ('length', 'interaction_range', 'v', 'mu', 'delta_t',
-                 'particles', 'dim', '_cell_list')
     """
     A class for simulating the Vicsek model of self-propelled particles.
     This implementation supports periodic boundary conditions, visualization, and simulations of phase transitions.
-    
+
     """
+    __slots__ = ('length', 'interaction_range', 'v', 'mu', 'delta_t',
+                 'particles', 'dim', '_cell_list')
+
     def __init__(
             self,
             length: float,
@@ -50,6 +51,15 @@ class Vicsek:
 
         self.particles = particles
         self.dim = len(particles[0].position)
+
+        # The Vicsek model moves every particle at the same speed v. Rescale the
+        # initial velocities so that the order parameter (|<v>| / v) is well
+        # defined from t = 0; a zero initial velocity gets a random heading.
+        for particle in self.particles:
+            velocity = np.asarray(particle.velocity, dtype=float)
+            norm = np.linalg.norm(velocity)
+            direction = velocity / norm if norm > 0 else _random_unit_vector(self.dim)
+            particle.velocity = self.v * direction
 
         self._cell_list = CellList(
             particles=self.particles,
@@ -218,6 +228,9 @@ class Vicsek:
         if show_cells:
             self._cell_list.visualize(ax=ax, show_cell_grid=True)
 
+        if legend is None:
+            legend = {}
+
         for particle in self.particles:
             color = legend.get(particle.type, 'dimgrey')
 
@@ -336,6 +349,7 @@ class Vicsek:
         order_fluctuations = []
 
         for noise in tqdm(noise_values, desc="Noise values", position=0):
+            self.mu = noise  # Set the noise strength for this point of the sweep
 
             self.run(equilibration_steps)
 

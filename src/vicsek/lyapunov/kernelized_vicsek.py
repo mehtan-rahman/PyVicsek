@@ -71,12 +71,15 @@ class KernelizedVicsek(Vicsek):
         Returns:
             float: The weighting factor.
         """
-        if distance < 1 - 2 * self.epsilon:
+        # Work in units of the interaction range so the kernel reaches zero at
+        # distance == interaction_range (the original code hard-coded 1).
+        scaled = distance / self.interaction_range
+        if scaled < 1 - 2 * self.epsilon:
             return 1.0
-        elif distance > 1:
+        elif scaled > 1:
             return 0.0
         else:
-            x = (distance - 1)
+            x = (scaled - 1)
             return (x * x * (3 * self.epsilon + x)) / (4 * self.epsilon ** 3)
 
     def _compute_average_velocity(self, particle: Particle) -> np.ndarray:

@@ -144,14 +144,25 @@ def test_boundary_conditions(model_params, use_pbc):
         use_pbc=use_pbc
     )
 
-    model.step()
+    # Each step moves the particle speed / sqrt(2) along each axis; take enough
+    # steps to travel further than the 0.1 gap to the wall (0.03 * 10 / sqrt(2) ~ 0.21).
+    n_steps = 10
+    for _ in range(n_steps):
+        model.step()
+
+    travelled = n_steps * model_params['speed'] / np.sqrt(2)
+    unwrapped = (model_params['box_length'] - 0.1) + travelled
+    assert unwrapped > model_params['box_length']  # the test really crosses the wall
 
     if use_pbc:
-        # Particle should wrap around
-        assert all(0 <= x <= model_params['box_length'] for x in particle.position)
+        # Particle should wrap around to just inside the opposite wall
+        expected = unwrapped % model_params['box_length']
+        assert np.allclose(particle.position, expected)
+        assert all(0 <= x < model_params['box_length'] for x in particle.position)
     else:
         # Particle should move beyond boundary
-        assert any(x > model_params['box_length'] for x in particle.position)
+        assert np.allclose(particle.position, unwrapped)
+        assert all(x > model_params['box_length'] for x in particle.position)
 
 
 def test_perfect_alignment_order(aligned_model):
@@ -161,7 +172,15 @@ def test_perfect_alignment_order(aligned_model):
 
 def test_random_alignment_order(basic_model):
     """Test order parameter for randomly aligned particles"""
+    # The constructor rescales every velocity to |v| == speed, so the order
+    # parameter |<v>| / v is the length of the mean unit heading and lies in [0, 1].
+    speeds = np.linalg.norm([p.velocity for p in basic_model.particles], axis=1)
+    assert np.allclose(speeds, basic_model.v)
+
+    headings = np.array([p.velocity for p in basic_model.particles]) / basic_model.v
+    expected = np.linalg.norm(headings.mean(axis=0))
     order_param = basic_model.order_parameter()
+    assert np.isclose(order_param, expected)
     assert 0 <= order_param <= 1.0
     assert order_param < 1.0  # Should not be perfectly aligned
 

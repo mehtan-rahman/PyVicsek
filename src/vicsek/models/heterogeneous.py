@@ -72,7 +72,7 @@ class HeterogeneousVicsek(Vicsek):
         )
         self.alignment_weights = alignment_weights
         self.noise_weights = noise_weights
-        self.particle_types = list({p.type for p in particles})
+        self.particle_types = sorted({p.type for p in particles})  # sorted: set order is hash-seed dependent
 
         # Validate weights matrices
         for type1 in self.particle_types:
@@ -203,7 +203,13 @@ class HeterogeneousVicsek(Vicsek):
                 v1_mean = np.mean([p.velocity for p in type1_particles], axis=0)
                 v2_mean = np.mean([p.velocity for p in type2_particles], axis=0)
 
-                corr = np.dot(v1_mean, v2_mean) / (np.linalg.norm(v1_mean) * np.linalg.norm(v2_mean))
+                denominator = np.linalg.norm(v1_mean) * np.linalg.norm(v2_mean)
+                if denominator == 0:  # a fully disordered type has no mean heading
+                    correlations[(type1, type2)] = 0.0
+                    continue
+
+                # Clip so floating-point round-off cannot push a cosine outside [-1, 1].
+                corr = float(np.clip(np.dot(v1_mean, v2_mean) / denominator, -1.0, 1.0))
                 correlations[(type1, type2)] = corr
 
         return correlations
