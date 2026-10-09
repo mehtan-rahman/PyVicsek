@@ -36,3 +36,26 @@ One line per fix. "Library" means `src/vicsek` was wrong; "Test" means the test 
 - Noise is vectorial (`heading + mu * random_unit_vector`, then renormalised), i.e. the Gregoire-Chate variant, not the uniform angular noise of Vicsek 1995. Left as is; docstrings now describe it. The critical noise of about 0.91 seen in `scripts/homogeneous/phase_transition.py` is a property of this variant.
 - `KernelizedVicsek._compute_average_velocity(particle)` overrides the parent's `_compute_average_velocity(velocities)` with a different signature. Both are private; left as is. The module is not exported from `vicsek/__init__.py` and nothing in `scripts/` imports it, but it runs and its mathematics checks out after the interaction-range fix, so it is tested rather than quarantined.
 - `HeterogeneousVicsek.compute_cross_correlations` lines guarding an empty type (`if not type1_particles or not type2_particles`) are unreachable because `particle_types` is derived from the particles; left uncovered.
+
+## `lyapunov/kernelized_vicsek.py` verdict
+
+Not dead and not quarantined. It is unexported and unused by `scripts/`, but it imports, runs, and its kernel is a correct C1 cubic step (1 below `r(1 - 2 eps)`, 0 above `r`, 1/2 at `r(1 - eps)`, zero slope at both ends) once the hard-coded interaction range is fixed. With `epsilon = 1e-8` and zero noise it reproduces the plain `Vicsek` trajectory to 1e-10 over 8 steps (`test_small_epsilon_matches_hard_cutoff_vicsek`), which is the behaviour the docstring promises. It is tested in `tests/test_kernelized.py` and is at 100 % line coverage.
+
+## Coverage (pytest-cov, line coverage of `src/vicsek`)
+
+- Baseline: 35 passed, 5 failed (6 under some `PYTHONHASHSEED`s), 72 %.
+- Final: 128 passed, 0 failed. 466 statements, 2 missed, 99 % overall.
+- Including `lyapunov/kernelized_vicsek.py` (43 statements, 0 missed): 464 / 466 = 99.6 %.
+- Excluding it: 421 / 423 = 99.5 %.
+- The two uncovered lines are the unreachable empty-type guard in `HeterogeneousVicsek.compute_cross_correlations` (lines 197-198), noted above.
+
+## Test layout
+
+- `tests/conftest.py`: seeds `np.random` before every test, forces the Agg backend, closes all figures after every test, and offers a seeded `rng` Generator.
+- `tests/test_cell_list.py`: geometry, binning, PBC and open boundaries, out-of-box handling, brute-force neighbor equivalence (parametrised and hypothesis, 2-D and 3-D, PBC and not, 1 to 10 cells per axis), `visualize`.
+- `tests/test_vicsek.py`: constructor rescaling, mean heading, noise bound, exact displacement, boundary crossing, convergence, `equilibrate` paths with exact step counts, `order_parameter_evolution`, `run`, synchrony, order independence, seeding.
+- `tests/test_heterogeneous.py`: weights validation, weighted and anti-aligned headings, effective noise, type orders and cross-correlations with exact values, cooperative and antagonistic zero-noise outcomes, phase sweep.
+- `tests/test_ndim.py`: 3-D runs with and without PBC (speed conservation, containment, exact per-step displacement, order parameter in [0, 1], one-step alignment with zero noise, cell grid 6^3, particles leaving an open box), 3-D heterogeneous run, 4-D smoke test (81 neighbor offsets).
+- `tests/test_factory.py`: shapes, box containment, exact speed, names and types, seed reproducibility, isotropy of headings (4000 samples, bound at about four standard deviations), empty case.
+- `tests/test_kernelized.py`: kernel shape for three interaction ranges, range fix, no-neighbor and zero-mean paths, minimum image, synchrony, invariants, epsilon -> 0 limit.
+- `tests/test_visualization.py`: `Vicsek.visualize` (figure and axes created, limits, aspect, artist counts, colours, `legend=None`), `animate` (quivers per type, legend, saving 3 frames to GIF under Agg advances the model, order text matches), `simulate_phase_transition` (zero-noise point is ordered, high-noise point is not, `mu` applied, susceptibility = N var).
