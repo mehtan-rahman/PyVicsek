@@ -189,7 +189,8 @@ class Vicsek:
             float: The order parameter value, a measure of the average alignment of particles, normalized by the speed.
         """
         velocities = np.array([p.velocity for p in self.particles])
-        return np.linalg.norm(np.mean(velocities, axis=0)) / self.v
+        # min(): round-off can give 1 + 2e-16 for perfectly aligned particles.
+        return min(1.0, float(np.linalg.norm(np.mean(velocities, axis=0)) / self.v))
 
     def order_parameter_evolution(self, steps: int = 750) -> NDArray:
         """

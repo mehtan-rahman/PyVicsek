@@ -178,7 +178,7 @@ class HeterogeneousVicsek(Vicsek):
             type_counts[p.type] += 1
 
         return {
-            ptype: np.linalg.norm(vel) / (self.v * type_counts[ptype])
+            ptype: min(1.0, float(np.linalg.norm(vel) / (self.v * type_counts[ptype])))
             for ptype, vel in type_velocities.items()
             if type_counts[ptype] > 0
         }
