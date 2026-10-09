@@ -1,0 +1,61 @@
+# Test-suite hardening: what was broken and what changed
+
+One line per fix. "Library" means `src/vicsek` was wrong; "Test" means the test was wrong.
+
+## The baseline failures
+
+- **test_cell_list::test_build — Test.** Expected particles at (0.5, 0.5) to land in cell (9, 9) and (1.5, 1.5) in (8, 8). With `box_length=10`, `interaction_range=1` the cell size is 1 and the cell index is `floor(x / cell_size)`, so they belong in (0, 0) and (1, 1). The expectation was a mirrored (`n_cells - 1 - i`) convention the library never used. Test now asserts (0, 0) / (1, 1) / (5, 5) and that every particle is in exactly one cell. Verified by hand from `_hash_position` and by the brute-force neighbor-equivalence test, which would fail if cells were hashed inconsistently.
+- **test_cell_list::test_update — Test.** Same mirrored-index expectation as `test_build`; now asserts cell (0, 0) holds B and cell (1, 1) holds A and C after A moves to (1.5, 1.5).
+- **test_cell_list::test_visualize — Library.** `CellList.visualize` did not exist, yet both the test and `Vicsek.visualize(show_cells=True)` call it (so `show_cells=True` raised `AttributeError` too). Added `CellList.visualize(ax, show_cell_grid, label_cells, label_particles, color)` drawing the grid (n_cells + 1 lines per axis), one scatter per particle, and optional cell/particle annotations on the first two axes. Test asserts the exact counts of lines, collections and texts under the Agg backend.
+- **test_vicsek::test_boundary_conditions[False] — Test.** The particle started 0.1 from the wall with speed 0.03 and the test ran one step, so it moved 0.021 and could not cross the wall in either boundary mode; the `[True]` case only passed because a particle that never reaches the wall is trivially inside the box. Test now runs 10 steps (travel 0.21 > 0.1) and asserts the exact wrapped position with PBC and the exact unwrapped position (> L) without. Correct because with zero noise and no neighbors the heading is constant, so the trajectory is a straight line of known length.
+- **test_vicsek::test_random_alignment_order — Test fixture, hardened in library.** The fixture built particles with unit-speed velocities but gave the model `speed=0.03`; `order_parameter()` divides by `self.v`, so it returned 3.2. The Vicsek model (Vicsek et al. 1995) assumes every particle moves at speed v and defines the order parameter as |sum v_i| / (N v); a mixed-speed state is outside the model. `Vicsek.__init__` now rescales each initial velocity to magnitude `speed` (keeping its direction; a zero vector gets a random heading), so the invariant |v_i| = v holds from t = 0 instead of only after the first `step()`, and the order parameter is in [0, 1] for any input. The test now checks the rescale and compares the order parameter to the mean-heading length computed independently.
+
+## Additional failure found while reproducing the baseline
+
+- **test_heterogeneous::test_compute_cross_correlations — Library (nondeterminism).** `particle_types = list({...})` took its order from Python's per-process string hash seed, so `compute_cross_correlations` returned key `("A", "B")` on some runs and `("B", "A")` on others (the baseline run passed by luck of `PYTHONHASHSEED`). Now `sorted(...)`. Also clipped the cosine to [-1, 1] against round-off and return 0.0 when a type has zero mean velocity instead of dividing by zero. Verified by running the suite under `PYTHONHASHSEED=0..3`.
+
+## Other library bugs found by reading the code, fixed, and covered by new tests
+
+- **`Vicsek.simulate_phase_transition` ignored its noise values — Library.** The loop variable `noise` was never assigned to `self.mu`, so the "phase transition" sweep measured the same noise at every point (the heterogeneous subclass did set it). Now sets `self.mu = noise` per sweep point. Test: sweep `[0.0, 1.5]` with all particles inside one interaction range; the zero-noise point gives order 1 and the high-noise point does not, and `model.mu` equals the last noise value afterwards.
+- **`Vicsek.visualize(legend=None)` crashed — Library.** `legend.get(...)` on the default `None`. Now defaults to `{}`, so every particle is drawn in the fallback colour.
+- **`CellList.get_neighbors` double-counted neighbors when `n_cells <= 2` — Library.** With PBC, offsets -1 and +1 wrap onto the same cell when there are two cells per axis (and all three offsets hit the one cell when there is one), so every neighbor was returned two or three times and weighted that many times in the heading average. Neighbor cells are now visited once. Caught by the brute-force equivalence test (`box_length=2.5, interaction_range=1`), which compares neighbor multisets.
+- **`initialize_random_particles` did not give particles the requested speed — Library.** Velocity was `speed * uniform(-1, 1)^d`, whose magnitude is anything from 0 to `speed * sqrt(d)`; the docstring promises `speed`. Now `speed * (random unit vector)` from the same seeded generator. Test asserts `|v| == speed` for every particle and seed reproducibility.
+- **`KernelizedVicsek._smooth_weight` hard-coded an interaction range of 1 — Library.** The kernel compared the raw distance to 1 instead of to `interaction_range`, so with `interaction_range=2` a neighbor at distance 1.5 (inside the range) got weight 0. Distance is now scaled by `interaction_range`. Tests check the kernel is 1 below `r (1 - 2 eps)`, 0 above `r`, continuous and monotone in between, and that with `r = 2` the weight at 1.5 is 1.
+- **`order_parameter()` could return 1 + 2e-16 — Library (round-off).** For a perfectly aligned flock the norm of the mean velocity divided by `v` lands a few ulp above 1. `Vicsek.order_parameter` and `HeterogeneousVicsek.get_type_specific_order` now cap at 1.0 so the documented range [0, 1] is exact. Seen directly in the 3-D convergence test before the cap.
+- **`Vicsek` class docstring was dead — Library (cosmetic).** The string literal sat after `__slots__`, so `Vicsek.__doc__` was `None`. Moved it above `__slots__`. No behaviour change.
+
+## Issues raised by the infrastructure agent, fixed here
+
+- **`Vicsek.step` updated particles sequentially — Library.** Each particle in the loop saw neighbours' already-updated headings and positions (a Gauss-Seidel sweep), so the result depended on the order of the particle list; Vicsek 1995 computes every new heading from the time-t state and applies them together. `Vicsek.step`, `HeterogeneousVicsek.step` and `KernelizedVicsek.step` now compute all new velocities first and apply them through a shared `Vicsek._apply_updates`. Tests: two particles heading +x and +y with zero noise both end at (1, 1)/sqrt(2) (sequential would give the second (1, 1 + sqrt(2)) normalised), and a 25-particle zero-noise run gives identical per-particle trajectories for four shufflings of the particle list.
+- **Noise was documented as "angular" but is vectorial — Docs only.** The code adds `mu * (random unit vector)` to the unit mean heading and renormalises (Gregoire & Chate 2004), so the deviation angle obeys sin(theta) <= mu. Docstrings of `Vicsek.__init__`, `_apply_noise`, `HeterogeneousVicsek.__init__` and `KernelizedVicsek` now say so. Dynamics unchanged; the `sin(theta) <= mu` bound is asserted in `test_apply_noise`.
+- **Noise used numpy's global RNG only — Library (additive).** `Vicsek`, `HeterogeneousVicsek` and `KernelizedVicsek` take `seed: int | numpy.random.Generator | None = None`; `_random_unit_vector` takes an optional Generator. `None` keeps the old global-RNG behaviour exactly, so existing callers and `np.random.seed` still work. Tests: the same seed reproduces positions and headings bit for bit while the global RNG is perturbed; different seeds differ; a Generator instance is used as given.
+
+## Observations left to the owner (not changed)
+
+- `CellList._hash_position` reverses the axis order (`np.flipud`), so `cells` is keyed `(iy, ix)` in 2-D and `(iz, iy, ix)` in 3-D. It is internally consistent and neighbor finding is correct (brute-force test), but it is a surprising convention for a public attribute. Tests document it rather than change it.
+- Noise is vectorial (`heading + mu * random_unit_vector`, then renormalised), i.e. the Gregoire-Chate variant, not the uniform angular noise of Vicsek 1995. Left as is; docstrings now describe it. The critical noise of about 0.91 seen in `scripts/homogeneous/phase_transition.py` is a property of this variant.
+- `KernelizedVicsek._compute_average_velocity(particle)` overrides the parent's `_compute_average_velocity(velocities)` with a different signature. Both are private; left as is. The module is not exported from `vicsek/__init__.py` and nothing in `scripts/` imports it, but it runs and its mathematics checks out after the interaction-range fix, so it is tested rather than quarantined.
+- `HeterogeneousVicsek.compute_cross_correlations` lines guarding an empty type (`if not type1_particles or not type2_particles`) are unreachable because `particle_types` is derived from the particles; left uncovered.
+
+## `lyapunov/kernelized_vicsek.py` verdict
+
+Not dead and not quarantined. It is unexported and unused by `scripts/`, but it imports, runs, and its kernel is a correct C1 cubic step (1 below `r(1 - 2 eps)`, 0 above `r`, 1/2 at `r(1 - eps)`, zero slope at both ends) once the hard-coded interaction range is fixed. With `epsilon = 1e-8` and zero noise it reproduces the plain `Vicsek` trajectory to 1e-10 over 8 steps (`test_small_epsilon_matches_hard_cutoff_vicsek`), which is the behaviour the docstring promises. It is tested in `tests/test_kernelized.py` and is at 100 % line coverage.
+
+## Coverage (pytest-cov, line coverage of `src/vicsek`)
+
+- Baseline: 35 passed, 5 failed (6 under some `PYTHONHASHSEED`s), 72 %.
+- Final: 128 passed, 0 failed. 466 statements, 2 missed, 99 % overall.
+- Including `lyapunov/kernelized_vicsek.py` (43 statements, 0 missed): 464 / 466 = 99.6 %.
+- Excluding it: 421 / 423 = 99.5 %.
+- The two uncovered lines are the unreachable empty-type guard in `HeterogeneousVicsek.compute_cross_correlations` (lines 197-198), noted above.
+
+## Test layout
+
+- `tests/conftest.py`: seeds `np.random` before every test, forces the Agg backend, closes all figures after every test, and offers a seeded `rng` Generator.
+- `tests/test_cell_list.py`: geometry, binning, PBC and open boundaries, out-of-box handling, brute-force neighbor equivalence (parametrised and hypothesis, 2-D and 3-D, PBC and not, 1 to 10 cells per axis), `visualize`.
+- `tests/test_vicsek.py`: constructor rescaling, mean heading, noise bound, exact displacement, boundary crossing, convergence, `equilibrate` paths with exact step counts, `order_parameter_evolution`, `run`, synchrony, order independence, seeding.
+- `tests/test_heterogeneous.py`: weights validation, weighted and anti-aligned headings, effective noise, type orders and cross-correlations with exact values, cooperative and antagonistic zero-noise outcomes, phase sweep.
+- `tests/test_ndim.py`: 3-D runs with and without PBC (speed conservation, containment, exact per-step displacement, order parameter in [0, 1], one-step alignment with zero noise, cell grid 6^3, particles leaving an open box), 3-D heterogeneous run, 4-D smoke test (81 neighbor offsets).
+- `tests/test_factory.py`: shapes, box containment, exact speed, names and types, seed reproducibility, isotropy of headings (4000 samples, bound at about four standard deviations), empty case.
+- `tests/test_kernelized.py`: kernel shape for three interaction ranges, range fix, no-neighbor and zero-mean paths, minimum image, synchrony, invariants, epsilon -> 0 limit.
+- `tests/test_visualization.py`: `Vicsek.visualize` (figure and axes created, limits, aspect, artist counts, colours, `legend=None`), `animate` (quivers per type, legend, saving 3 frames to GIF under Agg advances the model, order text matches), `simulate_phase_transition` (zero-noise point is ordered, high-noise point is not, `mu` applied, susceptibility = N var).

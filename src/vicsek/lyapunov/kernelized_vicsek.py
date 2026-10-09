@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 
 import numpy as np
 
@@ -35,6 +35,7 @@ class KernelizedVicsek(Vicsek):
             epsilon: float = 1e-8,
             timestep: float = 1,
             use_pbc: bool = True,
+            seed: Union[int, np.random.Generator, None] = None,
     ):
         """Initialize a KernelizedVicsek simulation.
 
@@ -43,7 +44,8 @@ class KernelizedVicsek(Vicsek):
             particles (List[Particle]): List of particles in the simulation.
             interaction_range (float): Range of interaction between particles.
             speed (float): Speed of the particles.
-            noise_factor (float): Strength of the angular noise.
+            noise_factor (float): Strength of the vectorial noise (see Vicsek).
+            seed (int | Generator | None): Seed for the noise; None uses the global RNG.
             epsilon (float): Smoothing parameter for the weighting function.
             timestep (float): Duration of a single timestep.
             use_pbc (bool): Whether to use periodic boundary conditions.
@@ -55,7 +57,8 @@ class KernelizedVicsek(Vicsek):
             speed=speed,
             noise_factor=noise_factor,
             timestep=timestep,
-            use_pbc=use_pbc
+            use_pbc=use_pbc,
+            seed=seed,
         )
         self.epsilon = epsilon
 
@@ -71,12 +74,15 @@ class KernelizedVicsek(Vicsek):
         Returns:
             float: The weighting factor.
         """
-        if distance < 1 - 2 * self.epsilon:
+        # Work in units of the interaction range so the kernel reaches zero at
+        # distance == interaction_range (the original code hard-coded 1).
+        scaled = distance / self.interaction_range
+        if scaled < 1 - 2 * self.epsilon:
             return 1.0
-        elif distance > 1:
+        elif scaled > 1:
             return 0.0
         else:
-            x = (distance - 1)
+            x = (scaled - 1)
             return (x * x * (3 * self.epsilon + x)) / (4 * self.epsilon ** 3)
 
     def _compute_average_velocity(self, particle: Particle) -> np.ndarray:
@@ -118,27 +124,24 @@ class KernelizedVicsek(Vicsek):
 
         if norm > 0:
             return mean_velocity / norm
-        return _random_unit_vector(self.dim)
+        return _random_unit_vector(self.dim, self._rng)
 
     def step(self):
         """Single time step evolution with smooth weighting.
 
         Each particle's velocity is updated based on the smoothly weighted
-        average of its neighbors' velocities, with angular noise applied.
-        The particle positions are then updated based on their new velocities.
+        average of its neighbors' velocities, with vectorial noise applied.
+        All headings are computed from the old state, then every particle is
+        moved with its new velocity (synchronous update).
         """
+        new_velocities = []
         for particle in self.particles:
-            # Compute average direction using smooth weights
+            # Compute average direction using smooth weights from the old state
             avg_direction = self._compute_average_velocity(particle)
 
-            # Apply noise and update
+            # Apply noise
             noisy_direction = self._apply_noise(avg_direction)
-            particle.velocity = self.v * noisy_direction
+            new_velocities.append(self.v * noisy_direction)
 
-            # Update position
-            new_position = particle.position + particle.velocity * self.delta_t
-            if self._cell_list.use_pbc:
-                new_position = new_position % self.length
-            particle.position = new_position
-
-        self._cell_list.update()
+        # Apply all updates together (synchronous step)
+        self._apply_updates(new_velocities)

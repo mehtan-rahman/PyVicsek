@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple, NamedTuple
+from typing import List, Dict, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -31,9 +31,7 @@ class HeterogeneousVicsek(Vicsek):
         particle_types (List[str]): List of unique particle types in the simulation.
     """
 
-    __slots__ = ('length', 'interaction_range', 'v', 'mu', 'delta_t',
-                 'particles', 'dim', '_cell_list', 'alignment_weights',
-                 'noise_weights', 'particle_types')
+    __slots__ = ('alignment_weights', 'noise_weights', 'particle_types')
 
     def __init__(
             self,
@@ -46,6 +44,7 @@ class HeterogeneousVicsek(Vicsek):
             noise_weights: Dict[Tuple[str, str], float],
             timestep: float = 1,
             use_pbc: bool = True,
+            seed: Union[int, np.random.Generator, None] = None,
     ) -> None:
         """
         Initialize a HeterogeneousVicsek simulation.
@@ -55,11 +54,13 @@ class HeterogeneousVicsek(Vicsek):
             particles: List of particles in the simulation.
             interaction_range: Interaction range of particles.
             speed: Speed of particles.
-            base_noise: Base noise factor.
+            base_noise: Base strength of the vectorial noise (see Vicsek.noise_factor);
+                scaled per particle by the mean of the relevant noise weights.
             alignment_weights: Dictionary of alignment weights between particle types.
             noise_weights: Dictionary of noise weights between particle types.
             timestep: Time step size (default 1).
             use_pbc: Whether to use periodic boundary conditions (default True).
+            seed: Seed or Generator for the noise; None uses numpy's global RNG.
         """
         super().__init__(
             length=length,
@@ -68,11 +69,12 @@ class HeterogeneousVicsek(Vicsek):
             speed=speed,
             noise_factor=base_noise,
             timestep=timestep,
-            use_pbc=use_pbc
+            use_pbc=use_pbc,
+            seed=seed,
         )
         self.alignment_weights = alignment_weights
         self.noise_weights = noise_weights
-        self.particle_types = list({p.type for p in particles})
+        self.particle_types = sorted({p.type for p in particles})  # sorted: set order is hash-seed dependent
 
         # Validate weights matrices
         for type1 in self.particle_types:
@@ -113,7 +115,7 @@ class HeterogeneousVicsek(Vicsek):
         mean_velocity = np.average(velocities, axis=0, weights=weights)
         norm = np.linalg.norm(mean_velocity)
 
-        return mean_velocity / norm if norm > 0 else _random_unit_vector(self.dim)
+        return mean_velocity / norm if norm > 0 else _random_unit_vector(self.dim, self._rng)
 
     def _compute_effective_noise(self, particle: Particle, neighbors: List[Particle]) -> float:
         """
@@ -138,26 +140,21 @@ class HeterogeneousVicsek(Vicsek):
         return self.mu * np.mean(weights)
 
     def step(self):
-        """Execute one time step of the simulation."""
+        """Execute one synchronous time step of the simulation (see Vicsek.step)."""
+        new_velocities = []
         for particle in self.particles:
             neighbors = self._cell_list.get_neighbors(particle)
 
             avg_direction = self._compute_weighted_velocity(particle, neighbors)
             effective_noise = self._compute_effective_noise(particle, neighbors)
 
-            noise = effective_noise * _random_unit_vector(self.dim)
+            noise = effective_noise * _random_unit_vector(self.dim, self._rng)
             noisy_direction = avg_direction + noise
             noisy_direction = noisy_direction / np.linalg.norm(noisy_direction)
 
-            particle.velocity = self.v * noisy_direction
-            new_position = particle.position + particle.velocity * self.delta_t
+            new_velocities.append(self.v * noisy_direction)
 
-            if self._cell_list.use_pbc:
-                new_position = new_position % self.length
-
-            particle.position = new_position
-
-        self._cell_list.update()
+        self._apply_updates(new_velocities)
 
     def get_type_specific_order(self) -> Dict[str, float]:
         """
@@ -178,7 +175,7 @@ class HeterogeneousVicsek(Vicsek):
             type_counts[p.type] += 1
 
         return {
-            ptype: np.linalg.norm(vel) / (self.v * type_counts[ptype])
+            ptype: min(1.0, float(np.linalg.norm(vel) / (self.v * type_counts[ptype])))
             for ptype, vel in type_velocities.items()
             if type_counts[ptype] > 0
         }
@@ -203,7 +200,13 @@ class HeterogeneousVicsek(Vicsek):
                 v1_mean = np.mean([p.velocity for p in type1_particles], axis=0)
                 v2_mean = np.mean([p.velocity for p in type2_particles], axis=0)
 
-                corr = np.dot(v1_mean, v2_mean) / (np.linalg.norm(v1_mean) * np.linalg.norm(v2_mean))
+                denominator = np.linalg.norm(v1_mean) * np.linalg.norm(v2_mean)
+                if denominator == 0:  # a fully disordered type has no mean heading
+                    correlations[(type1, type2)] = 0.0
+                    continue
+
+                # Clip so floating-point round-off cannot push a cosine outside [-1, 1].
+                corr = float(np.clip(np.dot(v1_mean, v2_mean) / denominator, -1.0, 1.0))
                 correlations[(type1, type2)] = corr
 
         return correlations

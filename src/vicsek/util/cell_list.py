@@ -147,14 +147,20 @@ class CellList:
 
         neighbors = []
         cell_index = self._hash_position(particle.position)
+        visited = set()
 
         for offset in self.neighbor_offsets:
             if self.use_pbc:
-                neighbor_cell = tuple((np.array(cell_index) + offset) % self.n_cells)
+                neighbor_cell = tuple(int(i) for i in (np.array(cell_index) + offset) % self.n_cells)
             else:
-                neighbor_cell = tuple(np.array(cell_index) + offset)
+                neighbor_cell = tuple(int(i) for i in np.array(cell_index) + offset)
                 if not all(0 <= idx < self.n_cells for idx in neighbor_cell):
                     continue
+            # With fewer than three cells per axis several offsets wrap onto the
+            # same cell; visit each cell once so no neighbor is counted twice.
+            if neighbor_cell in visited:
+                continue
+            visited.add(neighbor_cell)
             neighbors.extend(self.cells[neighbor_cell])
 
         if self.use_pbc:
@@ -184,3 +190,49 @@ class CellList:
         delta = p1.position - p2.position
         delta = delta - self.box_length * np.round(delta / self.box_length)
         return np.linalg.norm(delta)
+
+    def visualize(
+            self,
+            ax: plt.Axes = None,
+            show_cell_grid: bool = True,
+            label_cells: bool = False,
+            label_particles: bool = False,
+            color: str = 'dimgrey',
+    ) -> plt.Axes:
+        """
+        Draw the cell grid and the particles it contains (first two axes only).
+
+        Args:
+            ax: Matplotlib axes to plot on. If None, a new figure is created.
+            show_cell_grid: Whether to draw the cell boundaries.
+            label_cells: Whether to annotate each cell with its index tuple.
+            label_particles: Whether to annotate each particle with its name.
+            color: Color of the particle markers.
+
+        Returns:
+            The matplotlib axes with the cell list drawn.
+        """
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8, 8))
+
+        if show_cell_grid:
+            edges = np.arange(self.n_cells + 1) * self.cell_size
+            for edge in edges:
+                ax.axvline(edge, color='lightgrey', linewidth=0.8, zorder=0)
+                ax.axhline(edge, color='lightgrey', linewidth=0.8, zorder=0)
+
+        if label_cells:
+            for cell_index in self.cells:
+                # Cell indices are stored in reversed axis order (see _hash_position).
+                xy = np.flipud(np.array(cell_index))
+                centre = (xy + 0.5) * self.cell_size
+                ax.annotate(str(cell_index), (centre[0], centre[1]),
+                            ha='center', va='center', fontsize=7, color='grey')
+
+        for particle in self.particles:
+            particle.visualize(ax=ax, label=label_particles, color=color, size=20)
+
+        ax.set_xlim(0, self.box_length)
+        ax.set_ylim(0, self.box_length)
+        ax.set_aspect('equal')
+        return ax

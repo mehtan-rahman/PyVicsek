@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray, ArrayLike
@@ -12,13 +12,14 @@ from vicsek.util.linalg import _random_unit_vector
 
 
 class Vicsek:
-    __slots__ = ('length', 'interaction_range', 'v', 'mu', 'delta_t',
-                 'particles', 'dim', '_cell_list')
     """
     A class for simulating the Vicsek model of self-propelled particles.
     This implementation supports periodic boundary conditions, visualization, and simulations of phase transitions.
-    
+
     """
+    __slots__ = ('length', 'interaction_range', 'v', 'mu', 'delta_t',
+                 'particles', 'dim', '_cell_list', '_rng')
+
     def __init__(
             self,
             length: float,
@@ -28,6 +29,7 @@ class Vicsek:
             noise_factor: float,
             timestep: float = 1,
             use_pbc: bool = True,
+            seed: Union[int, np.random.Generator, None] = None,
     ) -> None:
         """
         Initializes the Vicsek simulation.
@@ -37,19 +39,39 @@ class Vicsek:
             particles (List[Particle]): List of Particle objects in the simulation.
             interaction_range (float): Range of interaction between particles.
             speed (float): Speed of the particles.
-            noise_factor (float): Strength of angular noise.
+            noise_factor (float): Strength of the vectorial noise. Each step a random
+                unit vector scaled by this factor is added to the mean heading and the
+                sum is renormalised (the Gregoire-Chate variant), rather than perturbing
+                the heading angle by a uniform random angle as in Vicsek et al. 1995.
+                0 means no noise; values above 1 can reverse the heading.
             timestep (float): Duration of each timestep (default is 1).
             use_pbc (bool): Whether to use periodic boundary conditions (default is True).
+            seed (int | numpy.random.Generator | None): Seed or Generator for the noise.
+                None (default) keeps the historical behaviour of drawing from numpy's
+                global RNG, which ``np.random.seed`` controls.
         """
-        
+
         self.length = length
         self.interaction_range = interaction_range
         self.v = speed
         self.mu = noise_factor
         self.delta_t = timestep
+        if seed is None or isinstance(seed, np.random.Generator):
+            self._rng = seed
+        else:
+            self._rng = np.random.default_rng(seed)
 
         self.particles = particles
         self.dim = len(particles[0].position)
+
+        # The Vicsek model moves every particle at the same speed v. Rescale the
+        # initial velocities so that the order parameter (|<v>| / v) is well
+        # defined from t = 0; a zero initial velocity gets a random heading.
+        for particle in self.particles:
+            velocity = np.asarray(particle.velocity, dtype=float)
+            norm = np.linalg.norm(velocity)
+            direction = velocity / norm if norm > 0 else _random_unit_vector(self.dim, self._rng)
+            particle.velocity = self.v * direction
 
         self._cell_list = CellList(
             particles=self.particles,
@@ -73,19 +95,21 @@ class Vicsek:
         
         mean_velocity = np.mean(velocities, axis=0)
         norm = np.linalg.norm(mean_velocity)
-        return mean_velocity / norm if norm > 0 else _random_unit_vector(self.dim)
+        return mean_velocity / norm if norm > 0 else _random_unit_vector(self.dim, self._rng)
 
     def _apply_noise(self, velocity: NDArray) -> NDArray:
         """
-        Adds angular noise to a velocity vector.
+        Adds vectorial noise to a unit heading: ``heading + mu * u`` with ``u`` a
+        random unit vector, renormalised. The deviation angle theta therefore
+        satisfies sin(theta) <= mu for mu < 1.
 
         Parameters:
-            velocity (NDArray): The velocity vector to which noise is applied.
+            velocity (NDArray): The unit heading to which noise is applied.
 
         Returns:
-            NDArray: The noisy velocity vector, normalized to unit length.
+            NDArray: The noisy heading, normalized to unit length.
         """
-        noise = self.mu * _random_unit_vector(self.dim)
+        noise = self.mu * _random_unit_vector(self.dim, self._rng)
         noisy_velocity = velocity + noise
         return noisy_velocity / np.linalg.norm(noisy_velocity)
 
@@ -94,7 +118,13 @@ class Vicsek:
         Executes a single timestep of the Vicsek simulation.
 
         Updates particle velocities and positions based on neighbor interactions, with optional periodic boundary conditions.
+
+        The update is synchronous, as in Vicsek et al. 1995: every new heading is
+        computed from the state at the start of the step, then all velocities and
+        positions are applied together, so the result does not depend on the order
+        of the particle list.
         """
+        new_velocities = []
         for particle in self.particles:
             neighbors = self._cell_list.get_neighbors(particle) #finding neighbors based on the cell list
             all_particles = [particle] + neighbors
@@ -103,12 +133,19 @@ class Vicsek:
             avg_direction = self._compute_average_velocity(velocities)
 
             noisy_direction = self._apply_noise(avg_direction)
-            particle.velocity = self.v * noisy_direction
+            new_velocities.append(self.v * noisy_direction)
 
-            new_position = particle.position + particle.velocity * self.delta_t #updating position
+        self._apply_updates(new_velocities)
+
+    def _apply_updates(self, new_velocities: List[NDArray]) -> None:
+        """Assign the new velocities, move every particle by v * dt (wrapping under
+        PBC) and refresh the cell list."""
+        for particle, velocity in zip(self.particles, new_velocities):
+            particle.velocity = velocity
+            new_position = particle.position + velocity * self.delta_t #updating position
 
             if self._cell_list.use_pbc:
-                new_position = new_position % self.length #ensuring periodic boundary 
+                new_position = new_position % self.length #ensuring periodic boundary
 
             particle.position = new_position
 
@@ -179,7 +216,8 @@ class Vicsek:
             float: The order parameter value, a measure of the average alignment of particles, normalized by the speed.
         """
         velocities = np.array([p.velocity for p in self.particles])
-        return np.linalg.norm(np.mean(velocities, axis=0)) / self.v
+        # min(): round-off can give 1 + 2e-16 for perfectly aligned particles.
+        return min(1.0, float(np.linalg.norm(np.mean(velocities, axis=0)) / self.v))
 
     def order_parameter_evolution(self, steps: int = 750) -> NDArray:
         """
@@ -217,6 +255,9 @@ class Vicsek:
 
         if show_cells:
             self._cell_list.visualize(ax=ax, show_cell_grid=True)
+
+        if legend is None:
+            legend = {}
 
         for particle in self.particles:
             color = legend.get(particle.type, 'dimgrey')
@@ -336,6 +377,7 @@ class Vicsek:
         order_fluctuations = []
 
         for noise in tqdm(noise_values, desc="Noise values", position=0):
+            self.mu = noise  # Set the noise strength for this point of the sweep
 
             self.run(equilibration_steps)
 
