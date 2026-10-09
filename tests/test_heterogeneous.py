@@ -291,3 +291,30 @@ def test_phase_transition_zero_noise_point_is_ordered():
     assert np.isclose(global_fluct[0], 0.0, atol=1e-8)
     assert np.isclose(cross_corr[("A", "B")][0], 1.0, atol=1e-8)
     assert global_order[1] < global_order[0]
+
+
+def test_heterogeneous_step_is_synchronous():
+    """Both particles see the other's old heading: with weight 1 everywhere and no
+    noise both end at (1, 1)/sqrt(2)."""
+    a = Particle(np.array([5.0, 5.0]), np.array([1.0, 0.0]), "a", "A")
+    b = Particle(np.array([5.5, 5.0]), np.array([0.0, 1.0]), "b", "B")
+    model = make_model([a, b], uniform_weights(["A", "B"]), uniform_weights(["A", "B"]))
+    model.step()
+    expected = np.array([1.0, 1.0]) / np.sqrt(2)
+    assert np.allclose(a.velocity, expected) and np.allclose(b.velocity, expected)
+
+
+def test_heterogeneous_seed_is_reproducible():
+    def run(seed):
+        rng = np.random.default_rng(2)
+        particles = [Particle(rng.uniform(0, 10, 2), rng.normal(size=2), f"p{i}", "A" if i % 2 else "B")
+                     for i in range(10)]
+        np.random.seed(seed + 50)  # global RNG must be irrelevant when a seed is given
+        model = HeterogeneousVicsek(10.0, particles, 1.5, 1.0, 0.4, uniform_weights(["A", "B"]),
+                                    uniform_weights(["A", "B"]), seed=seed)
+        for _ in range(4):
+            model.step()
+        return np.array([p.position for p in particles])
+
+    assert np.array_equal(run(7), run(7))
+    assert not np.allclose(run(7), run(8))

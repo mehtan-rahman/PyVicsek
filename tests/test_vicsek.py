@@ -399,3 +399,78 @@ def test_determinism_under_seed(model_params):
     pos_b, head_b = run()
     assert np.array_equal(pos_a, pos_b)
     assert np.array_equal(head_a, head_b)
+
+
+def test_step_is_synchronous():
+    """Vicsek 1995 updates every heading from the state at the start of the step.
+    a heads +x and b heads +y within one range of each other and no noise: both must
+    end up at (1, 1)/sqrt(2). A sequential sweep would give b the mean of a's
+    already-updated heading and its own, (1, 1 + sqrt(2)) normalised, instead."""
+    a = Particle(np.array([5.0, 5.0]), np.array([1.0, 0.0]), "a", "t")
+    b = Particle(np.array([5.5, 5.0]), np.array([0.0, 1.0]), "b", "t")
+    model = Vicsek(10.0, [a, b], 1.0, speed=0.1, noise_factor=0.0)
+    model.step()
+    expected = np.array([1.0, 1.0]) / np.sqrt(2)
+    assert np.allclose(a.velocity / 0.1, expected)
+    assert np.allclose(b.velocity / 0.1, expected)
+    # Positions move with the new velocity.
+    assert np.allclose(a.position, [5.0, 5.0] + 0.1 * expected)
+    assert np.allclose(b.position, [5.5, 5.0] + 0.1 * expected)
+
+
+def test_step_result_is_independent_of_particle_order():
+    """Shuffling the particle list must not change any particle's trajectory.
+    Zero noise so the only possible source of difference is the update order."""
+    def final_state(order_seed):
+        particles = create_test_particles(25, 10.0, speed=0.3, seed=11)
+        np.random.default_rng(order_seed).shuffle(particles)
+        model = Vicsek(10.0, particles, interaction_range=2.0, speed=0.3, noise_factor=0.0)
+        for _ in range(5):
+            model.step()
+        return {p.name: (p.position.copy(), p.velocity.copy()) for p in particles}
+
+    reference = final_state(0)
+    for order_seed in (1, 2, 3):
+        other = final_state(order_seed)
+        for name, (pos, vel) in reference.items():
+            assert np.allclose(other[name][0], pos, atol=1e-12)
+            assert np.allclose(other[name][1], vel, atol=1e-12)
+
+
+def test_model_seed_gives_reproducible_trajectories():
+    """The seed argument makes a run reproducible without touching np.random."""
+    def run(seed):
+        np.random.seed(int(seed) + 1000)  # perturb the global RNG: it must not matter
+        particles = create_test_particles(10, 10.0, speed=0.1, seed=1)
+        model = Vicsek(10.0, particles, 1.0, 0.1, 0.4, seed=seed)
+        for _ in range(5):
+            model.step()
+        return positions(model), headings(model)
+
+    pos_a, head_a = run(3)
+    np.random.seed(0)
+    pos_b, head_b = run(3)
+    assert np.array_equal(pos_a, pos_b) and np.array_equal(head_a, head_b)
+    pos_c, _ = run(4)
+    assert not np.allclose(pos_a, pos_c)
+
+
+def test_model_accepts_generator_and_defaults_to_global_rng():
+    particles = create_test_particles(3, 10.0)
+    gen = np.random.default_rng(5)
+    model = Vicsek(10.0, particles, 1.0, 0.1, 0.2, seed=gen)
+    assert model._rng is gen
+    model_default = Vicsek(10.0, create_test_particles(3, 10.0), 1.0, 0.1, 0.2)
+    assert model_default._rng is None
+    # seed=None draws from numpy's global RNG, so np.random.seed controls it.
+    np.random.seed(1)
+    first = model_default._apply_noise(np.array([1.0, 0.0]))
+    np.random.seed(1)
+    second = model_default._apply_noise(np.array([1.0, 0.0]))
+    assert np.array_equal(first, second)
+    # A seeded Generator is consumed independently of the global RNG.
+    np.random.seed(1)
+    noisy_a = model._apply_noise(np.array([1.0, 0.0]))
+    np.random.seed(1)
+    noisy_b = model._apply_noise(np.array([1.0, 0.0]))
+    assert not np.array_equal(noisy_a, noisy_b)
