@@ -33,7 +33,7 @@ One line per fix. "Library" means `src/vicsek` was wrong; "Test" means the test 
 ## Observations left to the owner (not changed)
 
 - `CellList._hash_position` reverses the axis order (`np.flipud`), so `cells` is keyed `(iy, ix)` in 2-D and `(iz, iy, ix)` in 3-D. It is internally consistent and neighbor finding is correct (brute-force test), but it is a surprising convention for a public attribute. Tests document it rather than change it.
-- Noise is vectorial (`heading + mu * random_unit_vector`, then renormalised), i.e. the Gregoire-Chate variant, not the uniform angular noise of Vicsek 1995. Left as is; docstrings now describe it. The critical noise of about 0.91 seen in `scripts/homogeneous/phase_transition.py` is a property of this variant.
+- Noise is vectorial (`heading + mu * random_unit_vector`, then renormalised), i.e. the Gregoire-Chate variant, not the uniform angular noise of Vicsek 1995. Left as is; docstrings now describe it. The critical noise of about 1.0 measured by `scripts/validate_phase_transition.py` is a property of this variant.
 - `KernelizedVicsek._compute_average_velocity(particle)` overrides the parent's `_compute_average_velocity(velocities)` with a different signature. Both are private; left as is. The module is not exported from `vicsek/__init__.py` and nothing in `scripts/` imports it, but it runs and its mathematics checks out after the interaction-range fix, so it is tested rather than quarantined.
 - `HeterogeneousVicsek.compute_cross_correlations` lines guarding an empty type (`if not type1_particles or not type2_particles`) are unreachable because `particle_types` is derived from the particles; left uncovered.
 
