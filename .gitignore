@@ -7,3 +7,5 @@ coverage.xml
 htmlcov/
 build/
 *.egg-info/
+src/*.egg-info/
+build/

@@ -13,7 +13,7 @@ What it does:
 - Heterogeneous particle types with per-pair alignment and noise weights (`HeterogeneousVicsek`).
 - A cell list for neighbour finding, an order-parameter time series, an equilibration check, and a noise sweep (`simulate_phase_transition`).
 
-Noise is applied as a random vector of length `noise_factor` added to the unit mean direction, then renormalised (vectorial noise), not as the uniform angular noise of the 1995 paper. Particles are updated sequentially within a step.
+Noise is applied as a random vector of length `noise_factor` added to the unit mean direction, then renormalised (vectorial noise, as in Gregoire and Chate 2004), not as the uniform angular noise of the 1995 paper. Updates are synchronous: every new heading is computed from the state at time t, then all are applied together. Models accept `seed=` (an int or a numpy Generator) for reproducible runs.
 
 ## Installation
 
@@ -98,7 +98,7 @@ More scripts are in `scripts/`, organised by system type.
 
 ![Order parameter against noise amplitude for N = 400](scripts/phase_transition.png)
 
-Quick mode (N = 400, 300 steps per run, 21 noise values, 3 seeds; 149 s on an Apple Silicon M5, Python 3.12, 2026-10-09) gives **eta_c = 0.91**. The order-disorder transition is reproduced, with phi falling to the 1/sqrt(N) = 0.05 noise floor on the disordered side. The value is lower than the 2 to 3 reported by Vicsek et al. for the same N, density and speed because this library uses vectorial rather than angular noise: here `noise_factor = 1` adds a random vector as long as the mean direction itself, so the two noise scales are not directly comparable. Run with `--full` for N = 4000 (slow).
+Quick mode (N = 400, 300 steps per run, 21 noise values, 3 seeds; 152 s on an Apple Silicon M5, Python 3.12, 2026-10-09) gives **eta_c = 1.01**. The order-disorder transition is reproduced, with phi falling to the 1/sqrt(N) = 0.05 noise floor on the disordered side. The value is lower than the 2 to 3 reported by Vicsek et al. for the same N, density and speed because this library uses vectorial rather than angular noise: here `noise_factor = 1` adds a random vector as long as the mean direction itself, so the two noise scales are not directly comparable. Run with `--full` for N = 4000 (slow).
 
 ## Performance
 
@@ -134,6 +134,5 @@ CI runs the suite on Python 3.10, 3.11 and 3.12 and uploads coverage to Codecov.
 
 ## Roadmap
 
-- Higher-dimensional testing.
 - Lyapunov analysis of phase dimensions (based on [this paper](https://doi.org/10.1103/PhysRevE.105.014213)).
 - Geometry support for particles and boundaries using [shapely](https://github.com/shapely/shapely).
