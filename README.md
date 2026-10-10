@@ -145,7 +145,7 @@ With the kernel the neighbour phase is 4.2 ms of the 5.2 ms 2-D step (0.21 us pe
 | 10000 | 50.0 | 0.967 | 0.758 | 0.0048 | 0.0025 | 389x | 6.9 | 2.6 |
 | 20000 | 70.7 | 3.776 | 1.521 | 0.0105 | 0.0050 | 750x | 14.3 | 5.2 |
 
-For comparison, the 0.2.0 step (a Python loop over particles calling `get_neighbors`) measured 176 ms at N = 1000, 820 ms at N = 5000 and 3238 ms at N = 20000 in 2-D, and 2612 ms at N = 5000 in 3-D on the same machine (under more load than the runs above). `docs/profiling.md` has the phase-by-phase profiles: the original loop, the vectorised numpy step, and the kernel.
+For comparison, the 0.2.0 step (a Python loop over particles calling `get_neighbors`) measured 176 ms at N = 1000, 820 ms at N = 5000 and 3238 ms at N = 20000 in 2-D, and 2612 ms at N = 5000 in 3-D on the same machine (under more load than the runs above). Measured back to back under the same conditions (`pip install pyvicsek==0.2.0` in a separate environment, N = 20000, 2-D, median of 20 steps after one warm-up step), the 0.2.0 step takes 1.69 s, the numpy path 14.5 ms (116x) and the kernel 5.2 ms single-threaded (325x) and 2.9 ms with 4 threads (580x). `docs/profiling.md` has the phase-by-phase profiles: the original loop, the vectorised numpy step, and the kernel.
 
 ```
 python benchmarks/bench_cell_list.py            # full table
