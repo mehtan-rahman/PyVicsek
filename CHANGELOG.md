@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-10-10
 
 `Vicsek.step()` is now a handful of NumPy array operations instead of a Python loop over particles: about 100x faster at N = 20000 in 2-D (see the Performance section of the README and the "After vectorisation" section of `docs/profiling.md` for the measurements). The physics is unchanged, and so is the public API.
 

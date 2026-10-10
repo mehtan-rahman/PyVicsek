@@ -23,7 +23,7 @@ pip install pyvicsek
 
 The import name is `vicsek`. Requires Python 3.10+ and depends on numpy, matplotlib and tqdm.
 
-Releases after 0.2.0 ship binary wheels on PyPI for CPython 3.10, 3.11 and 3.12 (3.12 wheels use the stable ABI and also install on later versions) on Linux x86_64, macOS x86_64 and arm64, and Windows x86_64. They include a small C++ extension, `vicsek._kernel`, that runs the neighbour search of every step several times faster than numpy (see Performance). Anywhere else pip builds from the sdist, which needs CMake (fetched automatically from PyPI) and a C++17 compiler; if no compiler is found the build prints a warning and installs the pure-Python package, which gives the same results on the numpy path. `vicsek.kernel_available()` says which you have.
+From 0.3.0, releases ship binary wheels on PyPI for CPython 3.10, 3.11 and 3.12 (3.12 wheels use the stable ABI and also install on later versions) on Linux x86_64, macOS x86_64 and arm64, and Windows x86_64. They include a small C++ extension, `vicsek._kernel`, that runs the neighbour search of every step several times faster than numpy (see Performance). Anywhere else pip builds from the sdist, which needs CMake (fetched automatically from PyPI) and a C++17 compiler; if no compiler is found the build prints a warning and installs the pure-Python package, which gives the same results on the numpy path. `vicsek.kernel_available()` says which you have.
 
 For development (builds the extension in place with your compiler):
 
