@@ -86,3 +86,36 @@ Build: switch `pyproject.toml` from setuptools to `scikit-build-core` with `nano
 Per-object layout is not the direct bottleneck: `Particle.position` property calls are 1.8 % of profiled time and the `np.array([p.velocity ...])` gathers 2 %. But it blocks the fix: the numpy path and the kernel both need contiguous `(N, dim)` arrays, and gathering them from 20000 objects costs 6.0 ms plus 5.4 ms to scatter back, 22 % of the vectorised step.
 
 A struct-of-arrays refactor stores `positions`, `velocities` as `(N, dim)` arrays and `type_id` as `int32[N]` on the model, and makes `Particle` a handle whose `position`/`velocity` properties return row `i` as a view (`p.position += ...` still works). `__slots__` stays; `_position`/`_velocity` go. The public API is unchanged, `CellList` receives arrays, and the gather/scatter cost disappears. Do this as part of step (a).
+
+## After vectorisation
+
+Plan (a) is done: `Vicsek.step` (and the heterogeneous and kernelized steps) run on `(N, dim)` arrays through `CellList.neighbor_pairs` / `mean_neighbor_velocity` and `Vicsek._noisy_headings`, and the `Particle` objects are row views of the model's arrays. Measured with the updated `benchmarks/profile_step.py` on the same machine (Python 3.12.15, numpy 2.5.3, the 4-core sweep still running), medians of 5 repeats x 20 steps. The script also checks the array step against the per-particle definition (`get_neighbors` + `_compute_average_velocity` + `_apply_noise` with a replayed random stream): PASS at every size, zero neighbour-count mismatches, max velocity and position difference after 3 seeded steps 9.2e-14 at N = 20000 (1.8e-15 in 3-D).
+
+### Phase table, N = 20000, 2-D
+
+| phase | ms/step | % | us/particle |
+|---|---:|---:|---:|
+| bin + sort particles into cells (`_bin_particles`) | 1.32 | 5.0 | 0.07 |
+| expand candidate pairs (`_candidate_pairs`) | 9.51 | 35.9 | 0.48 |
+| pair distances, minimum image (`_pair_distances`) | 6.17 | 23.3 | 0.31 |
+| mask pairs + heading sum (rest of `mean_neighbor_velocity`) | 8.18 | 30.9 | 0.41 |
+| normalise + noise (`_noisy_headings`) | 1.43 | 5.4 | 0.07 |
+| position update + wrap (`_apply_updates`) | 0.14 | 0.5 | 0.01 |
+| **total step** | **26.45** | 100 | **1.32** |
+
+N = 5000, 3-D: 16.5 ms (3.30 us/particle); candidates 34 %, distances 38 %, heading sum 23 %.
+
+### Before and after, same machine, same hour (median of 5 steps)
+
+| config | 0.2.0 step (ms) | vectorised step (ms) | speedup |
+|---|---:|---:|---:|
+| N=1000 2-D | 176 | 1.2 | 147x |
+| N=5000 2-D | 820 | 6.2 | 132x |
+| N=20000 2-D | 3238 | 26.0 | 125x |
+| N=5000 3-D | 2612 | 16.7 | 156x |
+
+The 0.2.0 numbers agree with the table at the top (154 / 747 / 3087 / 2564 ms), so the machine load was comparable. cProfile now counts about 3500 function calls per step in total (0.17 per particle at N = 1000, 0.01 at N = 20000) against 723 per particle before; the step is entirely inside numpy kernels.
+
+### What changed against the prototype
+
+The prototype measured 51.4 ms at N = 20000; the library step is 26 ms. Two differences: pair distances are computed one axis at a time (a 1-D column gather is several times cheaper than gathering `(k, 2)` rows, and the temporaries are half the size: 37.9 ms to 6.2 ms for this phase), and the pairs within range are selected with `flatnonzero` + `take` instead of boolean indexing three arrays (8 ms to 2 ms). The remaining time is spread over the candidate expansion (four `np.repeat` calls over 757 k candidates), the distance arithmetic and the `bincount` sums; all of it is memory traffic over the candidate arrays, roughly 35 ns per candidate. The C++ reference's 8.6 ms (10 ns per candidate, in cache) remains the next step, now 3x rather than 6x away, and the array layout it needs is in place: `positions`, `velocities` and (for the heterogeneous model) integer type ids are contiguous arrays on the model.

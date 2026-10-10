@@ -102,25 +102,28 @@ Quick mode (N = 400, 300 steps per run, 21 noise values, 3 seeds; 152 s on an Ap
 
 ## Performance
 
-Neighbour search is done with a cell list (`vicsek.util.cell_list.CellList`). `benchmarks/bench_cell_list.py` compares it against a brute-force O(N^2) search (one vectorised numpy pass per particle, periodic minimum-image distances) at fixed density 4 in 2-D, after checking that both return identical neighbour sets at N = 1000. The last column is one full `Vicsek.step()`.
+`Vicsek.step()` is array arithmetic on the model's `(N, dim)` position and velocity arrays: a vectorised cell list (`CellList.neighbor_pairs`: hash particles to cells, sort, expand each particle's 3^dim neighbouring cells into candidate pairs with `np.repeat`, keep the pairs within range) followed by `bincount` heading sums, one `normal(size=(N, dim))` noise draw, and the position update. There is no Python loop over particles; cost is O(N), about 1.3 microseconds per particle in 2-D at density 4 and 3.3 in 3-D.
 
-Apple Silicon M5, Python 3.12, numpy 2.5, 2026-10-09:
+`benchmarks/bench_cell_list.py` compares three neighbour searches at fixed density 4 in 2-D, after checking that all three return identical neighbour sets at N = 1000: a brute-force O(N^2) search (one vectorised numpy pass per particle, periodic minimum-image distances), the per-particle API `CellList.get_neighbors` called for every particle, and the vectorised `CellList.neighbor_pairs` (every pair at once, which is what `step()` uses). The speedup column is brute force over `neighbor_pairs`. The last column is a full `Vicsek.step()` (median of 5).
 
-| N | L | brute force (s) | cell list (s) | speedup | Vicsek.step() (s) |
-|---:|---:|---:|---:|---:|---:|
-| 500 | 11.2 | 0.004 | 0.038 | 0.1x | - |
-| 1000 | 15.8 | 0.014 | 0.081 | 0.2x | - |
-| 2000 | 22.4 | 0.046 | 0.150 | 0.3x | - |
-| 5000 | 35.4 | 0.259 | 0.370 | 0.7x | - |
-| 10000 | 50.0 | 0.996 | 0.738 | 1.3x | 0.80 |
-| 20000 | 70.7 | 3.826 | 1.521 | 2.5x | 1.66 |
+Apple Silicon M5, Python 3.12, numpy 2.5, 2026-10-10, with the vectorised step (this version):
 
-The cell list scales linearly (about 75 microseconds per particle), but its per-particle Python overhead means the numpy brute force is faster below roughly N = 7000. The crossover will move with density and interaction range.
+| N | L | brute force (s) | cell list, get_neighbors (s) | cell list, neighbor_pairs (s) | speedup | Vicsek.step() (ms) |
+|---:|---:|---:|---:|---:|---:|---:|
+| 500 | 11.2 | 0.006 | 0.068 | 0.0003 | 19x | - |
+| 1000 | 15.8 | 0.026 | 0.135 | 0.0007 | 37x | - |
+| 2000 | 22.4 | 0.076 | 0.242 | 0.0019 | 40x | - |
+| 5000 | 35.4 | 0.404 | 0.630 | 0.0039 | 104x | - |
+| 10000 | 50.0 | 1.498 | 1.253 | 0.0073 | 205x | 10.7 |
+| 20000 | 70.7 | 5.889 | 2.930 | 0.0181 | 326x | 20.7 |
+
+For comparison, the 0.2.0 step (a Python loop over particles calling `get_neighbors`) measured on the same machine a few minutes earlier, median of 5: 176 ms at N = 1000, 820 ms at N = 5000, 3238 ms at N = 20000 in 2-D, and 2612 ms at N = 5000 in 3-D. The vectorised step takes 1.2, 6.2, 26.0 and 16.7 ms respectively, 125-155x faster. `docs/profiling.md` has the phase-by-phase profile before and after.
 
 ```
 python benchmarks/bench_cell_list.py            # full table
 python benchmarks/bench_cell_list.py --quick    # N = 500, 1000, 2000
 python benchmarks/bench_cell_list.py --sizes 1000,4000 --step-sizes 4000
+python benchmarks/profile_step.py --quick       # per-phase profile of step()
 ```
 
 ## Testing

@@ -6,8 +6,13 @@ For each N the box is scaled so that the number density is fixed
 same `<= interaction_range` criterion. Before any timing the two methods are
 checked to return identical neighbour sets at N = 1000.
 
-The script also times one full `Vicsek.step()` of the library at the sizes
-given by --step-sizes (default 10000 and 20000).
+Two cell-list columns are reported: the per-particle API (`CellList.build`
+then `get_neighbors` for every particle) and the vectorised routine
+(`CellList.neighbor_pairs`, every pair at once, which is what `Vicsek.step`
+uses). The speedup column is brute force over the vectorised routine.
+
+The script also times a full `Vicsek.step()` of the library at the sizes
+given by --step-sizes (default 10000 and 20000); the median of 5 steps.
 
 Usage:
     python benchmarks/bench_cell_list.py
@@ -18,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import platform
+import statistics
 import sys
 import time
 from datetime import date
@@ -73,17 +79,36 @@ def cell_list_neighbors(particles, length: float, radius: float) -> List[Set[int
     return [set(index_of[id(q)] for q in cl.get_neighbors(p)) for p in particles]
 
 
+def vectorized_pairs(positions: np.ndarray, length: float, radius: float):
+    """Neighbour search with the library's vectorised routine (all pairs at once)."""
+    return CellList(particles=[], box_length=length, interaction_range=radius, n_dimensions=2,
+                    use_pbc=True).neighbor_pairs(positions)
+
+
+def vectorized_neighbors(positions: np.ndarray, length: float, radius: float) -> List[Set[int]]:
+    """The vectorised pairs as per-particle sets, for the agreement check (not timed)."""
+    i, j, _ = vectorized_pairs(positions, length, radius)
+    result: List[Set[int]] = [set() for _ in range(len(positions))]
+    for a, b in zip(i.tolist(), j.tolist()):
+        result[a].add(b)
+    return result
+
+
 def check_agreement(n: int = CHECK_N) -> None:
     particles = make_particles(n, seed=123)
     length = box_length(n)
     positions = np.array([p.position for p in particles])
     bf = brute_force_neighbors(positions, length, RADIUS)
     cl = cell_list_neighbors(particles, length, RADIUS)
+    vec = vectorized_neighbors(positions, length, RADIUS)
     mismatches = sum(1 for a, b in zip(bf, cl) if a != b)
+    mismatches_vec = sum(1 for a, b in zip(bf, vec) if a != b)
     mean_nb = np.mean([len(s) for s in bf])
-    if mismatches:
-        raise SystemExit(f"FAIL: {mismatches}/{n} particles have different neighbour sets between brute force and CellList")
-    print(f"Neighbour sets identical for all {n} particles (mean neighbours {mean_nb:.2f}, expected rho*pi*r^2 = {DENSITY * np.pi * RADIUS**2:.2f}).")
+    if mismatches or mismatches_vec:
+        raise SystemExit(f"FAIL: {mismatches}/{n} (get_neighbors) and {mismatches_vec}/{n} (neighbor_pairs) particles "
+                         f"have different neighbour sets from brute force")
+    print(f"Neighbour sets identical for all {n} particles in all three methods (mean neighbours {mean_nb:.2f}, "
+          f"expected rho*pi*r^2 = {DENSITY * np.pi * RADIUS**2:.2f}).")
 
 
 def time_once(fn, *args) -> float:
@@ -92,10 +117,12 @@ def time_once(fn, *args) -> float:
     return time.perf_counter() - t0
 
 
-def time_step(n: int) -> float:
+def time_step(n: int, repeats: int = 5) -> float:
+    """Median of `repeats` consecutive Vicsek.step() calls (after one warm-up step)."""
     particles = make_particles(n, seed=7)
     model = vs.Vicsek(length=box_length(n), particles=particles, interaction_range=RADIUS, speed=SPEED, noise_factor=1.0)
-    return time_once(model.step)
+    model.step()
+    return statistics.median(time_once(model.step) for _ in range(repeats))
 
 
 def parse_sizes(text: str) -> List[int]:
@@ -129,24 +156,26 @@ def main() -> None:
         positions = np.array([p.position for p in particles])
         t_bf = time_once(brute_force_neighbors, positions, length, RADIUS)
         t_cl = time_once(cell_list_neighbors, particles, length, RADIUS)
+        t_vec = statistics.median(time_once(vectorized_pairs, positions, length, RADIUS) for _ in range(5))
         step = step_times.get(n)
         if step is None and n in step_sizes:
             step = time_step(n)
-        rows.append((n, length, t_bf, t_cl, step))
-        print(f"  N={n:>6}  brute {t_bf:8.3f}s  cell-list {t_cl:8.3f}s", file=sys.stderr)
+        rows.append((n, length, t_bf, t_cl, t_vec, step))
+        print(f"  N={n:>6}  brute {t_bf:8.3f}s  get_neighbors {t_cl:8.3f}s  neighbor_pairs {t_vec:8.4f}s", file=sys.stderr)
     for n in step_sizes:
         if n not in sizes:
-            rows.append((n, box_length(n), None, None, step_times[n]))
+            rows.append((n, box_length(n), None, None, None, step_times[n]))
     rows.sort(key=lambda r: r[0])
 
-    print("\n| N | L | brute force (s) | cell list (s) | speedup | Vicsek.step() (s) |")
-    print("|---:|---:|---:|---:|---:|---:|")
-    for n, length, t_bf, t_cl, step in rows:
+    print("\n| N | L | brute force (s) | cell list, get_neighbors (s) | cell list, neighbor_pairs (s) | speedup | Vicsek.step() (ms) |")
+    print("|---:|---:|---:|---:|---:|---:|---:|")
+    for n, length, t_bf, t_cl, t_vec, step in rows:
         bf = f"{t_bf:.3f}" if t_bf is not None else "-"
         cl = f"{t_cl:.3f}" if t_cl is not None else "-"
-        sp = f"{t_bf / t_cl:.1f}x" if (t_bf is not None and t_cl) else "-"
-        st = f"{step:.2f}" if step is not None else "-"
-        print(f"| {n} | {length:.1f} | {bf} | {cl} | {sp} | {st} |")
+        vec = f"{t_vec:.4f}" if t_vec is not None else "-"
+        sp = f"{t_bf / t_vec:.0f}x" if (t_bf is not None and t_vec) else "-"
+        st = f"{step * 1e3:.1f}" if step is not None else "-"
+        print(f"| {n} | {length:.1f} | {bf} | {cl} | {vec} | {sp} | {st} |")
 
 
 if __name__ == "__main__":
