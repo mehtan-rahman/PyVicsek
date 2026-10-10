@@ -48,7 +48,7 @@ wheel.packages = ["src/vicsek"]
 wheel.exclude = ["**.cpp"]
 # Stable ABI (abi3) wheel on CPython 3.12+, version-specific wheels for 3.10/3.11.
 wheel.py-api = "cp312"
-sdist.exclude = ["scripts/", "docs/", ".github/", "dist/", "build/", ".hypothesis/", "requirements.txt"]
+sdist.exclude = ["scripts/", ".github/", "dist/", "build/", ".hypothesis/", "requirements.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
