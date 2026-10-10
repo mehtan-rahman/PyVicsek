@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyvicsek"
-version = "0.1.1"
+version = "0.2.0"
 description = "Simulation of the Vicsek model of collective motion in N dimensions, with periodic boundaries and heterogeneous particle types"
 readme = "README.md"
 requires-python = ">=3.10"

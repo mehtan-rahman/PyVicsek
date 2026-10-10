@@ -9,3 +9,4 @@ build/
 *.egg-info/
 src/*.egg-info/
 build/
+dist/
