@@ -152,6 +152,44 @@ class Vicsek:
         noisy_velocity = velocity + noise
         return noisy_velocity / np.linalg.norm(noisy_velocity)
 
+    def _noisy_headings(self, mean_velocities: NDArray, noise_scale: Union[float, NDArray]) -> NDArray:
+        """Turn mean velocities into the new unit headings, with vectorial noise,
+        for all particles at once.
+
+        Row ``i`` of ``mean_velocities`` is normalised to a unit heading (a zero
+        row gets a random direction), then ``noise_scale * u`` is added with
+        ``u`` a random unit vector and the sum renormalised, exactly as
+        ``_compute_average_velocity`` and ``_apply_noise`` do for one particle.
+        ``noise_scale`` is a float or an ``(N, 1)`` array of per-particle values.
+
+        The random numbers are drawn in the same order as the per-particle
+        code: for particle 0, 1, 2, ... a fallback direction if its mean is
+        zero, then its noise vector. Particles with a nonzero mean are handled
+        in blocks, which yields the same doubles from the generator as one
+        ``normal(size=dim)`` call per particle.
+        """
+        n, dim = mean_velocities.shape
+        norm = np.linalg.norm(mean_velocities, axis=1)
+        defined = norm > 0                      # also False for NaN (e.g. all weights zero)
+        heading = np.empty((n, dim))
+        heading[defined] = mean_velocities[defined] / norm[defined, None]
+
+        source = self._rng if self._rng is not None else np.random
+        unit = np.empty((n, dim))
+        start = 0
+        for z in np.flatnonzero(~defined):
+            if z > start:
+                unit[start:z] = source.normal(0, 1, (z - start, dim))
+            heading[z] = _random_unit_vector(dim, self._rng)
+            start = z
+        if start < n:
+            unit[start:] = source.normal(0, 1, (n - start, dim))
+        unit /= np.linalg.norm(unit, axis=1)[:, None]
+
+        noisy = heading + noise_scale * unit
+        noisy /= np.linalg.norm(noisy, axis=1)[:, None]
+        return noisy
+
     def step(self):
         """
         Executes a single timestep of the Vicsek simulation.
@@ -162,19 +200,15 @@ class Vicsek:
         computed from the state at the start of the step, then all velocities and
         positions are applied together, so the result does not depend on the order
         of the particle list.
+
+        The whole step is array arithmetic on ``positions`` and ``velocities``:
+        ``CellList.mean_neighbor_velocity`` finds every neighbour pair at once and
+        averages the velocities, ``_noisy_headings`` normalises and adds the noise,
+        and ``_apply_updates`` moves the particles. No Python loop over particles.
         """
-        new_velocities = []
-        for particle in self.particles:
-            neighbors = self._cell_list.get_neighbors(particle) #finding neighbors based on the cell list
-            all_particles = [particle] + neighbors
-
-            velocities = np.array([p.velocity for p in all_particles])
-            avg_direction = self._compute_average_velocity(velocities)
-
-            noisy_direction = self._apply_noise(avg_direction)
-            new_velocities.append(self.v * noisy_direction)
-
-        self._apply_updates(new_velocities)
+        mean_velocities, _ = self._cell_list.mean_neighbor_velocity(self._positions, self._velocities)
+        new_headings = self._noisy_headings(mean_velocities, self.mu)
+        self._apply_updates(self.v * new_headings)
 
     def _apply_updates(self, new_velocities: ArrayLike) -> None:
         """Assign the new velocities (an ``(N, dim)`` array or a list of vectors),
@@ -186,7 +220,7 @@ class Vicsek:
         if self._cell_list.use_pbc:
             np.mod(self._positions, self.length, out=self._positions)  #ensuring periodic boundary
 
-        self._cell_list.update()
+        self._cell_list.invalidate()
 
     def run(self, iterations: int = 400):
         for _ in tqdm(range(iterations), f'Running {iterations} Steps'):

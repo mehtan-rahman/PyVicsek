@@ -34,3 +34,24 @@ def close_figures():
 def rng():
     """An independent, seeded Generator for building test configurations."""
     return np.random.default_rng(SEED)
+
+
+def clone_rng_state(model):
+    """Snapshot the random source a model draws from (its Generator, or numpy's
+    global RNG when seed=None) so a reference computation can replay the same
+    stream. Returns a callable producing a Generator-like object positioned at
+    the snapshot."""
+    if model._rng is not None:
+        state = model._rng.bit_generator.state
+
+        def replay():
+            gen = np.random.default_rng()
+            gen.bit_generator.state = state
+            return gen
+    else:
+        state = np.random.get_state()
+
+        def replay():
+            np.random.set_state(state)
+            return None
+    return replay

@@ -474,3 +474,75 @@ def test_model_accepts_generator_and_defaults_to_global_rng():
     np.random.seed(1)
     noisy_b = model._apply_noise(np.array([1.0, 0.0]))
     assert not np.array_equal(noisy_a, noisy_b)
+
+
+# --- the vectorised step reproduces the per-particle definition -----------------
+
+def reference_step(model):
+    """What Vicsek.step() must produce, computed particle by particle with the
+    per-particle API (get_neighbors, _compute_average_velocity, _apply_noise)
+    from a copy of the model's random stream."""
+    from conftest import clone_rng_state
+    from vicsek.util.linalg import _random_unit_vector
+
+    replay = clone_rng_state(model)
+    rng = replay()
+    cell_list = model._cell_list
+    new_velocities = []
+    for p in model.particles:
+        velocities = np.array([q.velocity for q in [p] + cell_list.get_neighbors(p)])
+        mean = velocities.mean(axis=0)
+        norm = np.linalg.norm(mean)
+        heading = mean / norm if norm > 0 else _random_unit_vector(model.dim, rng)
+        noisy = heading + model.mu * _random_unit_vector(model.dim, rng)
+        new_velocities.append(model.v * noisy / np.linalg.norm(noisy))
+    new_velocities = np.array(new_velocities)
+    new_positions = positions(model) + new_velocities * model.delta_t
+    if cell_list.use_pbc:
+        new_positions %= model.length
+    replay()   # rewind numpy's global RNG (consumed above) so step() sees the same stream
+    return new_positions, new_velocities
+
+
+@pytest.mark.parametrize("seed", [11, None])
+@pytest.mark.parametrize("use_pbc", [True, False])
+@pytest.mark.parametrize("n_dimensions", [2, 3])
+def test_step_matches_per_particle_reference(seed, use_pbc, n_dimensions):
+    """The array step gives the same headings and positions as the per-particle
+    code (to 1e-12) and consumes the random stream in the same order, for a
+    seeded Generator and for numpy's global RNG, periodic and open, 2-D and 3-D."""
+    particles = initialize_random_particles(150, 6.0, 0.3, n_dimensions, seed=5)
+    # Two exactly opposed particles with only each other in range: their mean
+    # heading is zero, so both take the random-direction fallback, which must
+    # interleave with the noise draws in particle order.
+    particles[40].position = np.full(n_dimensions, 3.0)
+    particles[41].position = np.full(n_dimensions, 3.0) + np.eye(n_dimensions)[0] * 0.1
+    particles[40].velocity = np.eye(n_dimensions)[1]
+    particles[41].velocity = -np.eye(n_dimensions)[1]
+    for p in particles[:40] + particles[42:]:
+        if np.linalg.norm(p.position - particles[40].position) < 1.6:
+            p.position = (p.position + 3.0) % 6.0
+    np.random.seed(99)
+    model = Vicsek(6.0, particles, interaction_range=1.0, speed=0.3, noise_factor=0.4,
+                   use_pbc=use_pbc, seed=seed)
+    assert model._cell_list.get_neighbors(particles[40]) == [particles[41]]
+
+    for _ in range(3):
+        expected_positions, expected_velocities = reference_step(model)
+        model.step()
+        assert np.allclose(positions(model), expected_positions, rtol=0, atol=1e-12)
+        assert np.allclose(np.array([p.velocity for p in model.particles]), expected_velocities,
+                           rtol=0, atol=1e-12)
+
+
+def test_step_with_one_particle_and_no_neighbors_draws_noise_only():
+    """A single particle: one noise draw per step from the given generator."""
+    p = Particle(np.array([5.0, 5.0]), np.array([1.0, 0.0]), "p", "t")
+    model = Vicsek(10.0, [p], 1.0, 0.1, noise_factor=0.5, seed=3)
+    rng = np.random.default_rng(3)
+    model.step()
+    u = rng.normal(0, 1, 2)
+    u /= np.linalg.norm(u)
+    expected = np.array([1.0, 0.0]) + 0.5 * u
+    expected /= np.linalg.norm(expected)
+    assert np.allclose(p.velocity, 0.1 * expected, atol=1e-15)

@@ -183,8 +183,10 @@ def test_particle_becomes_a_view_of_the_model_state():
     a.position = np.array([5.0, 6.0])
     b.position += 1.0
     a.velocity[1] = 0.25
+    b.velocity = [0.0, 1.0]
     assert_array_equal(model.positions, [[5.0, 6.0], [4.0, 5.0]])
     assert model.velocities[0, 1] == 0.25
+    assert_array_equal(model.velocities[1], [0.0, 1.0])
 
     # Writes through the model are visible from the particles, and the arrays are
     # never reallocated, so views taken earlier stay valid.

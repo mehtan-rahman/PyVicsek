@@ -148,22 +148,48 @@ class HeterogeneousVicsek(Vicsek):
         weights = neighbor_weights + [self.noise_weights[(particle.type, particle.type)]]
         return self.mu * np.mean(weights)
 
+    def _weight_matrix(self, weights: Dict[Tuple[str, str], float]) -> NDArray:
+        """The weight dictionary as an ``(n_types, n_types)`` matrix indexed by type id."""
+        n_types = len(self.particle_types)
+        matrix = np.empty((n_types, n_types))
+        for a, type1 in enumerate(self.particle_types):
+            for b, type2 in enumerate(self.particle_types):
+                matrix[a, b] = weights[(type1, type2)]
+        return matrix
+
     def step(self):
-        """Execute one synchronous time step of the simulation (see Vicsek.step)."""
-        new_velocities = []
-        for particle in self.particles:
-            neighbors = self._cell_list.get_neighbors(particle)
+        """Execute one synchronous time step of the simulation (see Vicsek.step).
 
-            avg_direction = self._compute_weighted_velocity(particle, neighbors)
-            effective_noise = self._compute_effective_noise(particle, neighbors)
+        Vectorised: the alignment and noise weights are gathered per neighbour
+        pair from ``(n_types, n_types)`` matrices, the weighted velocity sums and
+        the mean noise weights are accumulated with ``bincount``, and the result
+        goes through ``Vicsek._noisy_headings``. Equivalent to calling
+        ``_compute_weighted_velocity`` and ``_compute_effective_noise`` for every
+        particle in turn.
+        """
+        alignment = self._weight_matrix(self.alignment_weights)
+        noise = self._weight_matrix(self.noise_weights)
+        types = self._type_ids
+        n = len(types)
 
-            noise = effective_noise * _random_unit_vector(self.dim, self._rng)
-            noisy_direction = avg_direction + noise
-            noisy_direction = noisy_direction / np.linalg.norm(noisy_direction)
+        focal, neighbor, _ = self._cell_list.neighbor_pairs(self._positions)
+        n_neighbors = np.bincount(focal, minlength=n)
 
-            new_velocities.append(self.v * noisy_direction)
+        # w * v flips the neighbour's heading when w < 0 and weights it by |w|.
+        pair_weight = alignment[types[focal], types[neighbor]]
+        weighted = alignment[types, types][:, None] * self._velocities
+        for k in range(self.dim):
+            weighted[:, k] += np.bincount(focal, weights=pair_weight * self._velocities[neighbor, k], minlength=n)
+        # A particle without neighbours keeps its own heading (whatever its self weight).
+        lone = n_neighbors == 0
+        weighted[lone] = self._velocities[lone]
 
-        self._apply_updates(new_velocities)
+        # Effective noise: base noise times the mean noise weight over self and neighbours.
+        noise_sum = noise[types, types] + np.bincount(focal, weights=noise[types[focal], types[neighbor]], minlength=n)
+        effective_noise = self.mu * noise_sum / (n_neighbors + 1)
+
+        new_headings = self._noisy_headings(weighted, effective_noise[:, None])
+        self._apply_updates(self.v * new_headings)
 
     def get_type_specific_order(self) -> Dict[str, float]:
         """

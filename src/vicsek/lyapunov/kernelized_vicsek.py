@@ -62,6 +62,13 @@ class KernelizedVicsek(Vicsek):
         )
         self.epsilon = epsilon
 
+    def _smooth_weights(self, distances: np.ndarray) -> np.ndarray:
+        """Vectorised smooth weighting factor (see ``_smooth_weight``)."""
+        scaled = np.asarray(distances, dtype=float) / self.interaction_range
+        x = scaled - 1
+        ramp = (x * x * (3 * self.epsilon + x)) / (4 * self.epsilon ** 3)
+        return np.where(scaled < 1 - 2 * self.epsilon, 1.0, np.where(scaled > 1, 0.0, ramp))
+
     def _smooth_weight(self, distance: float) -> float:
         """Compute smooth weighting factor.
 
@@ -76,14 +83,7 @@ class KernelizedVicsek(Vicsek):
         """
         # Work in units of the interaction range so the kernel reaches zero at
         # distance == interaction_range (the original code hard-coded 1).
-        scaled = distance / self.interaction_range
-        if scaled < 1 - 2 * self.epsilon:
-            return 1.0
-        elif scaled > 1:
-            return 0.0
-        else:
-            x = (scaled - 1)
-            return (x * x * (3 * self.epsilon + x)) / (4 * self.epsilon ** 3)
+        return float(self._smooth_weights(distance))
 
     def _compute_average_velocity(self, particle: Particle) -> np.ndarray:
         """Compute average velocity using smooth weights for a single particle.
@@ -133,15 +133,22 @@ class KernelizedVicsek(Vicsek):
         average of its neighbors' velocities, with vectorial noise applied.
         All headings are computed from the old state, then every particle is
         moved with its new velocity (synchronous update).
+
+        Vectorised: ``CellList.neighbor_pairs`` gives every pair with its
+        (minimum-image) distance, the kernel is evaluated on the distance array
+        and the weighted sums accumulated with ``bincount``; equivalent to
+        ``_compute_average_velocity`` for every particle in turn.
         """
-        new_velocities = []
-        for particle in self.particles:
-            # Compute average direction using smooth weights from the old state
-            avg_direction = self._compute_average_velocity(particle)
+        n = len(self.particles)
+        focal, neighbor, distance = self._cell_list.neighbor_pairs(self._positions)
+        weights = self._smooth_weights(distance)
 
-            # Apply noise
-            noisy_direction = self._apply_noise(avg_direction)
-            new_velocities.append(self.v * noisy_direction)
+        weighted = self._smooth_weight(0.0) * self._velocities      # self term
+        for k in range(self.dim):
+            weighted[:, k] += np.bincount(focal, weights=weights * self._velocities[neighbor, k], minlength=n)
+        # Without neighbours the heading is kept, as in _compute_average_velocity.
+        lone = np.bincount(focal, minlength=n) == 0
+        weighted[lone] = self._velocities[lone]
 
-        # Apply all updates together (synchronous step)
-        self._apply_updates(new_velocities)
+        new_headings = self._noisy_headings(weighted, self.mu)
+        self._apply_updates(self.v * new_headings)

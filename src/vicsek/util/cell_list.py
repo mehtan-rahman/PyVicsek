@@ -70,11 +70,21 @@ def _candidate_pairs(cells: NDArray, order: NDArray, starts: NDArray, n_cells: i
 
 def _pair_distances(positions: NDArray, focal: NDArray, candidate: NDArray, box_length: float,
                     use_pbc: bool) -> NDArray:
-    """Distance of every candidate pair, minimum image under periodic boundaries."""
-    delta = positions[candidate] - positions[focal]
-    if use_pbc:
-        delta -= box_length * np.rint(delta / box_length)
-    return np.sqrt(np.einsum("ij,ij->i", delta, delta))
+    """Distance of every candidate pair, minimum image under periodic boundaries.
+
+    Computed one axis at a time: gathering a contiguous 1-D column with fancy
+    indexing is several times faster than gathering (k, dim) rows, and the
+    per-axis temporaries are half the size.
+    """
+    squared = None
+    for k in range(positions.shape[1]):
+        column = np.ascontiguousarray(positions[:, k])
+        delta = column[candidate] - column[focal]
+        if use_pbc:
+            delta -= box_length * np.rint(delta / box_length)
+        delta *= delta
+        squared = delta if squared is None else squared + delta
+    return np.sqrt(squared)
 
 
 def neighbor_pairs(positions: NDArray, box_length: float, interaction_range: float,

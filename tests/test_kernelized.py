@@ -131,3 +131,42 @@ def test_small_epsilon_matches_hard_cutoff_vicsek():
         return np.array([p.position for p in particles])
 
     assert np.allclose(run(KernelizedVicsek, epsilon=1e-8), run(Vicsek), atol=1e-10)
+
+
+@pytest.mark.parametrize("use_pbc", [True, False])
+def test_step_matches_per_particle_reference(use_pbc):
+    """The vectorised kernel step equals _compute_average_velocity applied to
+    each particle with a replayed random stream, periodic and open."""
+    from conftest import clone_rng_state
+    from vicsek.util.linalg import _random_unit_vector
+
+    particles = initialize_random_particles(120, 6.0, 0.2, 2, seed=33)
+    particles[0].position = np.array([3.0, 3.0]); particles[0].velocity = np.array([1.0, 0.0])
+    particles[1].position = np.array([3.3, 3.0]); particles[1].velocity = np.array([-1.0, 0.0])
+    for p in particles[2:]:
+        if np.linalg.norm(p.position - [3.0, 3.0]) < 1.5:
+            p.position = (p.position + 3.0) % 6.0
+    model = KernelizedVicsek(length=6.0, particles=particles, interaction_range=1.0, speed=0.2,
+                             noise_factor=0.3, epsilon=0.2, use_pbc=use_pbc, seed=9)
+    assert model._cell_list.get_neighbors(particles[0]) == [particles[1]]    # zero mean: fallback
+
+    for _ in range(3):
+        replay = clone_rng_state(model)
+        gen = replay()
+        model._rng = gen
+        expected = []
+        for p in model.particles:
+            heading = model._compute_average_velocity(p)
+            noisy = heading + model.mu * _random_unit_vector(2, gen)
+            expected.append(model.v * noisy / np.linalg.norm(noisy))
+        model._rng = replay()
+        model.step()
+        actual = np.array([p.velocity for p in model.particles])
+        assert np.allclose(actual, np.array(expected), rtol=0, atol=1e-12)
+
+
+def test_smooth_weights_vectorised_matches_scalar():
+    a, b = two_particles(0.5)
+    model = make([a, b], epsilon=0.1)
+    d = np.linspace(0, 1.2, 50)
+    assert np.array_equal(model._smooth_weights(d), np.array([model._smooth_weight(x) for x in d]))

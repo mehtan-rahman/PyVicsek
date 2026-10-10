@@ -318,3 +318,52 @@ def test_heterogeneous_seed_is_reproducible():
 
     assert np.array_equal(run(7), run(7))
     assert not np.allclose(run(7), run(8))
+
+
+def test_step_matches_per_particle_reference():
+    """The vectorised step equals the per-particle definition built from
+    _compute_weighted_velocity and _compute_effective_noise with a replayed
+    random stream: three types, negative and zero weights, unequal noise
+    weights, lone particles and an opposed pair (random fallback)."""
+    from conftest import clone_rng_state
+    from vicsek.util.linalg import _random_unit_vector
+
+    rng = np.random.default_rng(12)
+    types = ["A", "B", "C"]
+    particles = [Particle(rng.uniform(0, 8, 2), rng.normal(size=2), f"p{i}", types[i % 3]) for i in range(90)]
+    def min_image_distance(a, b):
+        delta = a - b
+        return np.linalg.norm(delta - 8.0 * np.round(delta / 8.0))
+
+    particles[0].position = np.array([4.0, 4.0]); particles[0].velocity = np.array([1.0, 0.0])
+    particles[1].position = np.array([4.1, 4.0]); particles[1].velocity = np.array([-1.0, 0.0])
+    particles[2].position = np.array([1.0, 1.0])                        # a lone particle
+    for p in particles[3:]:
+        if min_image_distance(p.position, [4.0, 4.0]) < 1.5:
+            p.position = (p.position + 4.0) % 8.0
+    for p in particles[3:]:
+        if min_image_distance(p.position, [1.0, 1.0]) < 1.5:
+            p.position = (p.position + [0.0, 4.0]) % 8.0
+    alignment = {("A", "A"): 1.0, ("A", "B"): -0.5, ("A", "C"): 0.0,
+                 ("B", "A"): 2.0, ("B", "B"): -1.0, ("B", "C"): 0.3,
+                 ("C", "A"): 0.7, ("C", "B"): 1.5, ("C", "C"): 1.0}
+    noise = {(a, b): 0.5 + 0.25 * (i % 4) for i, (a, b) in enumerate((a, b) for a in types for b in types)}
+    model = HeterogeneousVicsek(8.0, particles, 1.0, 0.2, 0.3, alignment, noise, seed=4)
+    assert model._cell_list.get_neighbors(particles[0]) == [particles[1]]
+    assert model._cell_list.get_neighbors(particles[2]) == []
+
+    for _ in range(3):
+        replay = clone_rng_state(model)
+        gen = replay()
+        model._rng = gen            # reference draws from the replayed stream ...
+        expected = []
+        for p in model.particles:
+            neighbors = model._cell_list.get_neighbors(p)
+            heading = model._compute_weighted_velocity(p, neighbors)
+            eff = model._compute_effective_noise(p, neighbors)
+            noisy = heading + eff * _random_unit_vector(2, gen)
+            expected.append(model.v * noisy / np.linalg.norm(noisy))
+        model._rng = replay()       # ... and the model from an identical copy
+        model.step()
+        actual = np.array([p.velocity for p in model.particles])
+        assert np.allclose(actual, np.array(expected), rtol=0, atol=1e-12)
