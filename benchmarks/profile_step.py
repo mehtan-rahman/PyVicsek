@@ -20,6 +20,13 @@ rho = N / L^dim = DENSITY, so the mean neighbour count is fixed
 4. Times the pure-numpy brute-force neighbour search from
    bench_cell_list.py and the per-particle CellList.get_neighbors query as
    the two reference points.
+5. If the C++ kernel vicsek._kernel is built: times the same step with the
+   kernel (neighbour phase in C++, everything else unchanged) for each thread
+   count in --kernel-threads, split into the kernel call, normalise + noise
+   and the position update, and checks that a few seeded steps give exactly
+   the numpy path's positions and velocities.
+
+Sections 1-4 run on the numpy path (the kernel is switched off for them).
 
 Before 0.3.0 the step was a Python loop over particles (see docs/profiling.md
 for that profile and the prototype this step grew out of).
@@ -28,6 +35,7 @@ Usage:
     python benchmarks/profile_step.py              # full run, a few minutes
     python benchmarks/profile_step.py --quick      # N = 1000 and 5000 only, fewer repeats
     python benchmarks/profile_step.py --sizes 20000 --no-3d --repeats 5 --steps 5
+    python benchmarks/profile_step.py --sizes 20000 --size-3d 20000 --skip-cprofile --skip-brute --skip-vectorized
 """
 from __future__ import annotations
 
@@ -303,6 +311,64 @@ def time_brute_force(n: int, dim: int, repeats: int) -> float:
 
 
 # --------------------------------------------------------------------------
+# 5. The C++ kernel
+# --------------------------------------------------------------------------
+
+KERNEL_PHASES = ("kernel_call", "heading_noise", "position_update", "step_rest")
+KERNEL_LABEL = {
+    "kernel_call": "neighbour phase in C++ (mean_neighbor_velocity -> vicsek._kernel)",
+    "heading_noise": "normalise + noise (_noisy_headings)",
+    "position_update": "position update + wrap (_apply_updates)",
+    "step_rest": "step rest",
+}
+
+
+def time_kernel_phases(n: int, dim: int, steps: int, repeats: int, threads: int) -> Dict[str, float]:
+    """Median per-step time (s) of each phase of the kernel step, and of the total."""
+    per_step: Dict[str, List[float]] = {p: [] for p in KERNEL_PHASES}
+    totals: List[float] = []
+    model = make_model(n, dim)
+    timers = PhaseTimers()
+    timers.acc.update({p: 0.0 for p in KERNEL_PHASES})
+    timers._wrap(CellList, "mean_neighbor_velocity", "kernel_call")
+    timers._wrap(Vicsek, "_noisy_headings", "heading_noise")
+    timers._wrap(Vicsek, "_apply_updates", "position_update")
+    try:
+        with vs.use_kernel(True, threads=threads):
+            model.step()   # warm-up
+            for _ in range(repeats):
+                for p in KERNEL_PHASES:
+                    timers.acc[p] = 0.0
+                t0 = time.perf_counter()
+                for _ in range(steps):
+                    model.step()
+                total = (time.perf_counter() - t0) / steps
+                acc = {p: timers.acc[p] / steps for p in KERNEL_PHASES}
+                acc["step_rest"] = total - sum(acc[p] for p in KERNEL_PHASES if p != "step_rest")
+                for p in KERNEL_PHASES:
+                    per_step[p].append(acc[p])
+                totals.append(total)
+    finally:
+        timers.__exit__()
+    out = {p: median(per_step[p]) for p in KERNEL_PHASES}
+    out["total"] = median(totals)
+    return out
+
+
+def verify_kernel(n: int, dim: int, check_steps: int = 5) -> bool:
+    """True if `check_steps` seeded steps give bit-identical states on both paths."""
+    states = []
+    for use in (False, True):
+        with vs.use_kernel(use):
+            model = make_model(n, dim, seed=123, rng_seed=777)
+            for _ in range(check_steps):
+                model.step()
+            states.append((model.positions.copy(), model.velocities.copy()))
+    (p0, v0), (p1, v1) = states
+    return bool(np.array_equal(p0, p1) and np.array_equal(v0, v1))
+
+
+# --------------------------------------------------------------------------
 # Reporting
 # --------------------------------------------------------------------------
 
@@ -377,6 +443,25 @@ def run_config(n: int, dim: int, args: argparse.Namespace) -> Dict[str, object]:
               f"{bf * 1e3:.0f} ms per pass ({bf / n * 1e6:.1f} us/particle); "
               f"per-particle CellList.get_neighbors over all particles {gn * 1e3:.0f} ms "
               f"({gn / n * 1e6:.1f} us/particle); vectorised step total {phases['total'] * 1e3:.1f} ms")
+
+    # -- the C++ kernel
+    if vs.kernel_available() and args.kernel_threads:
+        identical = verify_kernel(n, dim)
+        print(f"\n[5] C++ kernel step, median of {args.repeats} repeats x {args.steps} steps; "
+              f"5 seeded steps bit-identical to the numpy path: {'PASS' if identical else 'FAIL'}")
+        if not identical:
+            raise SystemExit("kernel step disagrees with the numpy step")
+        result["kernel"] = {}
+        for threads in args.kernel_threads:
+            kp = time_kernel_phases(n, dim, args.steps, args.repeats, threads)
+            result["kernel"][threads] = kp
+            total = kp["total"]
+            print(f"\n    {threads} thread(s): step {total * 1e3:.2f} ms ({total / n * 1e6:.3f} us/particle), "
+                  f"{phases['total'] / total:.1f}x the numpy step")
+            print("    | phase | ms/step | % |")
+            print("    |---|---:|---:|")
+            for p in KERNEL_PHASES:
+                print(f"    | {KERNEL_LABEL[p]} | {kp[p] * 1e3:.2f} | {100 * kp[p] / total:.1f} |")
     print()
     return result
 
@@ -387,6 +472,7 @@ def summary(results: List[Dict[str, object]]) -> None:
     print("=" * 96)
     print("| N | dim | step ms | us/particle | bin % | candidates % | distances % | heading sum % | noise % | update % | calls/particle | get_neighbors ms | brute ms |")
     print("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    kernel_rows = []
     for r in results:
         n = r["n"]
         ph = r["phases"]
@@ -401,6 +487,13 @@ def summary(results: List[Dict[str, object]]) -> None:
         print(f"| {n} | {r['dim']} | {tot * 1e3:.1f} | {tot / n * 1e6:.2f} | {pct['bin_sort']:.0f} | "
               f"{pct['candidate_pairs']:.0f} | {pct['pair_distances']:.0f} | {pct['heading_sum']:.0f} | "
               f"{pct['heading_noise']:.0f} | {pct['position_update']:.0f} | {calls} | {gn_ms} | {bf_ms} |")
+        for threads, kp in r.get("kernel", {}).items():
+            kernel_rows.append(f"| {n} | {r['dim']} | {tot * 1e3:.1f} | {threads} | {kp['total'] * 1e3:.2f} | "
+                               f"{kp['kernel_call'] * 1e3:.2f} | {tot / kp['total']:.1f}x |")
+    if kernel_rows:
+        print("\n| N | dim | numpy step ms | kernel threads | kernel step ms | of which C++ call ms | speedup |")
+        print("|---:|---:|---:|---:|---:|---:|---:|")
+        print("\n".join(kernel_rows))
 
 
 cprofile_steps_used = 20
@@ -411,7 +504,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sizes", type=lambda s: [int(x) for x in s.split(",") if x.strip()], default=None,
                     help="comma-separated N for the 2-D runs (default 1000,5000,20000)")
-    ap.add_argument("--no-3d", action="store_true", help="skip the 3-D N=5000 configuration")
+    ap.add_argument("--no-3d", action="store_true", help="skip the 3-D configuration")
+    ap.add_argument("--size-3d", type=int, default=SIZE_3D, help=f"N for the 3-D configuration (default {SIZE_3D})")
+    ap.add_argument("--kernel-threads", type=lambda s: [int(x) for x in s.split(",") if x.strip()], default=[1, 4],
+                    help="comma-separated thread counts for the kernel timings (default 1,4; empty to skip)")
     ap.add_argument("--quick", action="store_true", help="N = 1000 and 5000 only, 3 repeats, no 3-D")
     ap.add_argument("--steps", type=int, default=20, help="steps per repeat for the phase timers (default 20)")
     ap.add_argument("--repeats", type=int, default=5, help="repeats for every timing; medians are reported (default 5)")
@@ -432,9 +528,13 @@ def main() -> None:
     print(f"Density rho = {DENSITY}, r = {RADIUS}, speed = {SPEED}, noise = {NOISE}, periodic boundaries. "
           f"Timings: median of {args.repeats} repeats.\n")
 
+    print(f"C++ kernel: {'built' if vs.kernel_available() else 'not built, section 5 skipped'}\n")
+    if vs.kernel_available():
+        vs.use_kernel(False)   # sections 1-4 profile the numpy path; section 5 switches it on
+
     configs = [(n, 2) for n in sizes]
     if not args.no_3d:
-        configs.append((SIZE_3D, 3))
+        configs.append((args.size_3d, 3))
     results = [run_config(n, dim, args) for n, dim in configs]
     summary(results)
 
