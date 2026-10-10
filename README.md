@@ -21,13 +21,19 @@ Noise is applied as a random vector of length `noise_factor` added to the unit m
 pip install pyvicsek
 ```
 
-The import name is `vicsek`. Requires Python 3.10+ and depends on numpy, matplotlib and tqdm. For development:
+The import name is `vicsek`. Requires Python 3.10+ and depends on numpy, matplotlib and tqdm.
+
+Releases after 0.2.0 ship binary wheels on PyPI for CPython 3.10, 3.11 and 3.12 (3.12 wheels use the stable ABI and also install on later versions) on Linux x86_64, macOS x86_64 and arm64, and Windows x86_64. They include a small C++ extension, `vicsek._kernel`, that runs the neighbour search of every step several times faster than numpy (see Performance). Anywhere else pip builds from the sdist, which needs CMake (fetched automatically from PyPI) and a C++17 compiler; if no compiler is found the build prints a warning and installs the pure-Python package, which gives the same results on the numpy path. `vicsek.kernel_available()` says which you have.
+
+For development (builds the extension in place with your compiler):
 
 ```
 git clone https://github.com/mehtan-rahman/PyVicsek
 cd PyVicsek
 pip install -e ".[dev]"
 ```
+
+To build without the extension: `pip install . -Ccmake.define.VICSEK_KERNEL=OFF`.
 
 ## Examples
 
@@ -104,38 +110,59 @@ Quick mode (N = 400, 300 steps per run, 21 noise values, 3 seeds; 152 s on an Ap
 
 ## Performance
 
-`Vicsek.step()` is array arithmetic on the model's `(N, dim)` position and velocity arrays: a vectorised cell list (`CellList.neighbor_pairs`: hash particles to cells, sort, expand each particle's 3^dim neighbouring cells into candidate pairs with `np.repeat`, keep the pairs within range) followed by `bincount` heading sums, one `normal(size=(N, dim))` noise draw, and the position update. There is no Python loop over particles; cost is O(N), about 1.3 microseconds per particle in 2-D at density 4 and 3.3 in 3-D.
+`Vicsek.step()` is array arithmetic on the model's `(N, dim)` position and velocity arrays: a cell-list neighbour search and heading average, one `normal(size=(N, dim))` noise draw, and the position update. There is no Python loop over particles; cost is O(N).
 
-`benchmarks/bench_cell_list.py` compares three neighbour searches at fixed density 4 in 2-D, after checking that all three return identical neighbour sets at N = 1000: a brute-force O(N^2) search (one vectorised numpy pass per particle, periodic minimum-image distances), the per-particle API `CellList.get_neighbors` called for every particle, and the vectorised `CellList.neighbor_pairs` (every pair at once, which is what `step()` uses). The speedup column is brute force over `neighbor_pairs`. The last column is a full `Vicsek.step()` (median of 5).
+The neighbour search and heading average run in one of two implementations with bit-for-bit identical results (same pairs, same floating-point operations in the same order; the test suite asserts exact equality of whole trajectories):
 
-Apple Silicon M5, Python 3.12, numpy 2.5, 2026-10-10, with the vectorised step (this version):
+- the **C++ kernel** `vicsek._kernel` (nanobind; counting sort into cells, 3^dim stencil, minimum image, GIL released), used whenever it is installed;
+- the **numpy path** (`CellList.neighbor_pairs`: hash particles to cells, sort, expand each particle's 3^dim neighbouring cells into candidate pairs with `np.repeat`, keep the pairs within range, `bincount` sums), used when the kernel is not built, when `VICSEK_NO_KERNEL=1` is set before import, or after `vicsek.use_kernel(False)`.
 
-| N | L | brute force (s) | cell list, get_neighbors (s) | cell list, neighbor_pairs (s) | speedup | Vicsek.step() (ms) |
-|---:|---:|---:|---:|---:|---:|---:|
-| 500 | 11.2 | 0.006 | 0.068 | 0.0003 | 19x | - |
-| 1000 | 15.8 | 0.026 | 0.135 | 0.0007 | 37x | - |
-| 2000 | 22.4 | 0.076 | 0.242 | 0.0019 | 40x | - |
-| 5000 | 35.4 | 0.404 | 0.630 | 0.0039 | 104x | - |
-| 10000 | 50.0 | 1.498 | 1.253 | 0.0073 | 205x | 10.7 |
-| 20000 | 70.7 | 5.889 | 2.930 | 0.0181 | 326x | 20.7 |
+```python
+import vicsek as vs
+vs.kernel_available(), vs.kernel_enabled()   # built? in use?
+vs.use_kernel(True, threads=4)               # optional std::thread parallelism (default 1)
+with vs.use_kernel(False):                   # numpy path inside the block only
+    model.step()
+```
 
-For comparison, the 0.2.0 step (a Python loop over particles calling `get_neighbors`) measured on the same machine a few minutes earlier, median of 5: 176 ms at N = 1000, 820 ms at N = 5000, 3238 ms at N = 20000 in 2-D, and 2612 ms at N = 5000 in 3-D. The vectorised step takes 1.2, 6.2, 26.0 and 16.7 ms respectively, 125-155x faster. `docs/profiling.md` has the phase-by-phase profile before and after.
+Full `Vicsek.step()` at density 4, interaction radius 1, periodic boundaries, median of 5 x 20 steps (`benchmarks/profile_step.py --sizes 20000 --size-3d 20000`). Apple Silicon (M5, 10 cores), macOS 26, Python 3.12.15, numpy 2.5.3, Apple clang 21, 2026-10-10:
+
+| N = 20000 | numpy path (ms) | kernel, 1 thread (ms) | kernel, 4 threads (ms) | speedup, 1 / 4 threads |
+|---|---:|---:|---:|---:|
+| 2-D | 17.4 | 5.2 | 2.3 | 3.4x / 7.6x |
+| 3-D | 52.0 | 12.8 | 4.5 | 4.0x / 11.6x |
+
+With the kernel the neighbour phase is 4.2 ms of the 5.2 ms 2-D step (0.21 us per particle, about 6 ns per candidate pair); normalisation, noise and the position update (about 1 ms, numpy) are the rest. `HeterogeneousVicsek` and `KernelizedVicsek` get their neighbour pairs from the kernel but weight them in numpy, so they gain less: 18.1 to 12.3 ms and 19.2 to 10.0 ms at N = 20000 in 2-D.
+
+`benchmarks/bench_cell_list.py` compares the neighbour searches at fixed density 4 in 2-D, after checking that all of them return identical neighbour sets at N = 1000: a brute-force O(N^2) search (one vectorised numpy pass per particle, periodic minimum-image distances), the per-particle API `CellList.get_neighbors` called for every particle, and `CellList.neighbor_pairs` (every pair at once) on the numpy path and through the kernel. The speedup column is brute force over the faster `neighbor_pairs`. The last two columns are a full `Vicsek.step()` (median of 5) on each path. Same machine and date:
+
+| N | L | brute force (s) | get_neighbors (s) | neighbor_pairs, numpy (s) | neighbor_pairs, kernel (s) | speedup | step, numpy (ms) | step, kernel (ms) |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 500 | 11.2 | 0.004 | 0.037 | 0.0002 | 0.0001 | 44x | - | - |
+| 1000 | 15.8 | 0.013 | 0.081 | 0.0005 | 0.0002 | 58x | - | - |
+| 2000 | 22.4 | 0.045 | 0.153 | 0.0008 | 0.0005 | 100x | - | - |
+| 5000 | 35.4 | 0.255 | 0.375 | 0.0024 | 0.0012 | 217x | - | - |
+| 10000 | 50.0 | 0.967 | 0.758 | 0.0048 | 0.0025 | 389x | 6.9 | 2.6 |
+| 20000 | 70.7 | 3.776 | 1.521 | 0.0105 | 0.0050 | 750x | 14.3 | 5.2 |
+
+For comparison, the 0.2.0 step (a Python loop over particles calling `get_neighbors`) measured 176 ms at N = 1000, 820 ms at N = 5000 and 3238 ms at N = 20000 in 2-D, and 2612 ms at N = 5000 in 3-D on the same machine (under more load than the runs above). `docs/profiling.md` has the phase-by-phase profiles: the original loop, the vectorised numpy step, and the kernel.
 
 ```
 python benchmarks/bench_cell_list.py            # full table
 python benchmarks/bench_cell_list.py --quick    # N = 500, 1000, 2000
 python benchmarks/bench_cell_list.py --sizes 1000,4000 --step-sizes 4000
-python benchmarks/profile_step.py --quick       # per-phase profile of step()
+python benchmarks/profile_step.py --quick       # per-phase profile of step(), numpy and kernel
 ```
 
 ## Testing
 
 ```
 pip install -e ".[dev]"
-pytest --cov=vicsek
+pytest --cov=vicsek                      # kernel path by default
+VICSEK_NO_KERNEL=1 pytest --cov=vicsek   # numpy path by default
 ```
 
-CI runs the suite on Python 3.10, 3.11 and 3.12 and uploads coverage to Codecov.
+`tests/test_kernel.py` switches between the two paths itself and checks they agree exactly, so either run covers both. CI runs the suite on Python 3.10, 3.11 and 3.12, once with each path as the default, requires 100% line coverage of the Python code, installs once without the extension, and uploads coverage to Codecov.
 
 ## Roadmap
 

@@ -119,3 +119,52 @@ The 0.2.0 numbers agree with the table at the top (154 / 747 / 3087 / 2564 ms), 
 ### What changed against the prototype
 
 The prototype measured 51.4 ms at N = 20000; the library step is 26 ms. Two differences: pair distances are computed one axis at a time (a 1-D column gather is several times cheaper than gathering `(k, 2)` rows, and the temporaries are half the size: 37.9 ms to 6.2 ms for this phase), and the pairs within range are selected with `flatnonzero` + `take` instead of boolean indexing three arrays (8 ms to 2 ms). The remaining time is spread over the candidate expansion (four `np.repeat` calls over 757 k candidates), the distance arithmetic and the `bincount` sums; all of it is memory traffic over the candidate arrays, roughly 35 ns per candidate. The C++ reference's 8.6 ms (10 ns per candidate, in cache) remains the next step, now 3x rather than 6x away, and the array layout it needs is in place: `positions`, `velocities` and (for the heterogeneous model) integer type ids are contiguous arrays on the model.
+
+## After the kernel
+
+Plan (b) is done in the smallest form that removes the Python-side neighbour phase: `src/vicsek/_kernel.cpp`, built as `vicsek._kernel` with nanobind (stable ABI, `NB_STATIC`) through scikit-build-core, exports two functions:
+
+```
+neighbor_pairs(positions: f64[N, D], box_length, radius, use_pbc=True, n_threads=1)
+    -> (i: i64[P], j: i64[P], distance: f64[P])
+mean_neighbor_velocity(positions: f64[N, D], velocities: f64[N, D], box_length, radius, use_pbc=True, n_threads=1)
+    -> (mean: f64[N, D], n_neighbors: i64[N])
+```
+
+`CellList.mean_neighbor_velocity` (which `Vicsek.step` calls) and the module-level `neighbor_pairs` (which `HeterogeneousVicsek.step` and `KernelizedVicsek.step` call) dispatch to them through `vicsek.util.backend`; noise, normalisation, the position update and every per-pair weighting stay in numpy, so the random stream is untouched.
+
+Differences from the plan above, and why:
+
+- **Same semantics, to the bit.** The kernel reproduces the numpy path's arithmetic exactly rather than approximately: the same `n_cells = max(1, floor(L / r))` grid and truncating cell hash (floor modulo under PBC, clipped otherwise), the same distinct stencil offsets for one or two cells per axis, the same pair order (stencil offsets in order, each cell's particles by increasing index, which is what the stable argsort gives), `delta - L * rint(delta / L)` per axis, the squared sum in axis order, `sqrt` then `<= r`, the neighbour velocities summed from 0 in pair order (as `bincount` does) and then added to the particle's own velocity and divided by `n + 1`. It is compiled with `-ffp-contract=off` so no multiply-add is fused. Two shortcuts skip work without changing a bit: the division and `rint` are skipped when `|delta| < 0.49 L` (the quotient rounds to 0), and `sqrt` is skipped when the squared distance exceeds `r^2 (1 + 1e-12)`. The test suite therefore compares the two paths with exact equality, including 25-step trajectories of all three models.
+- **No per-type overload.** `HeterogeneousVicsek` has one interaction radius for all types; types only weight the pairs. Its step takes the pairs from the kernel and keeps the weighting in numpy, which gives exact equality without a second C++ entry point, at the cost of a smaller speedup (below). A fused weighted kernel is the obvious next step if the heterogeneous model becomes the bottleneck.
+- **Scalar box length, general dimension.** The library's box is cubic, so the kernel takes one `box_length`. Any dimension works (2 and 3 are compiled specialisations; tests cover 1 to 4).
+- **Threads optional.** `std::thread` over contiguous blocks of focal particles (at least 256 per block), off by default (`vicsek.use_kernel(True, threads=k)`); each particle's sum is computed in the same order whatever the thread count, so results do not depend on it.
+- **Fallback build.** `CMakeLists.txt` is `LANGUAGES NONE` and enables C++ only if `check_language(CXX)` finds a compiler, so the sdist installs as the pure-Python package without one. The import of `vicsek._kernel` is wrapped in `try/except ImportError` as planned.
+
+Inputs the numpy path accepts silently but the kernel rejects with `ValueError`: non-finite positions, positions beyond about 4e18 cell widths from the box, non-positive radius or box length, and grids of more than 1e9 cells (where numpy would try to allocate the same `bincount` array). These never occur in a model step.
+
+### Measurements
+
+Same machine as above (Apple M5, 10 cores), macOS 26, Python 3.12.15, numpy 2.5.3, Apple clang 21 (`-O3` Release build via scikit-build-core), 2026-10-10, machine otherwise lightly loaded (load average about 1). `benchmarks/profile_step.py --sizes 20000 --size-3d 20000 --skip-cprofile --skip-brute --skip-vectorized`, medians of 5 repeats x 20 steps; section 5 checks 5 seeded steps bit-identical to the numpy path (PASS for both configurations).
+
+| N = 20000 | numpy step (ms) | kernel step, 1 thread (ms) | of which C++ call (ms) | kernel step, 4 threads (ms) | of which C++ call (ms) |
+|---|---:|---:|---:|---:|---:|
+| 2-D | 17.4 | 5.18 | 4.24 | 2.29 | 1.33 |
+| 3-D | 52.0 | 12.83 | 11.72 | 4.48 | 3.34 |
+
+Speedup of the whole step: 3.4x (2-D) and 4.0x (3-D) single-threaded, 7.6x and 11.6x with 4 threads. The numpy step is faster here than in the "After vectorisation" table (17.4 against 26.0 ms in 2-D) because the earlier runs shared the machine with a 4-core sweep.
+
+Phase split of the 1-thread 2-D kernel step: C++ neighbour phase 4.24 ms (82 %), normalise + noise 0.85 ms (16 %), position update 0.09 ms (2 %). The neighbour phase is 0.21 us per particle, about 5.7 ns per candidate pair (757 k candidates), against the standalone reference's 8.6 ms for the whole step; the two shortcuts above account for most of the difference (5.4 ms to 3.9 ms for the bare call in a quick before/after). With 4 threads the numpy remainder (noise draw and normalisation, about 1 ms) is 40 % of the step, so more threads or moving the noise into C++ would gain little more without changing how the random numbers are drawn.
+
+Other models at N = 20000, 2-D, median of 5 x 10 steps:
+
+| model | numpy (ms) | kernel (ms) |
+|---|---:|---:|
+| `HeterogeneousVicsek` (two types) | 18.1 | 12.3 |
+| `KernelizedVicsek` (epsilon 0.05) | 19.2 | 10.0 |
+
+Their remaining time is the per-pair numpy work (gathering type weights or evaluating the smooth kernel over 250 k pairs and `bincount`), not the neighbour search.
+
+### Against the target in issue #4
+
+The issue asked for one `step()` at N = 20000 "well under the current 1.65 s". The numpy step is 17.4 ms and the kernel step 5.2 ms (2.3 ms with 4 threads) on this machine, so the target is met by both paths; the kernel adds a further 3.4x to 7.6x in 2-D and 4x to 12x in 3-D.
