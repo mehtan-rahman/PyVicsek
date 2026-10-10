@@ -28,10 +28,16 @@ class HeterogeneousVicsek(Vicsek):
         _cell_list (CellList): Cell list for efficient neighbor searching.
         alignment_weights (Dict[Tuple[str, str], float]): Alignment weights between particle types.
         noise_weights (Dict[Tuple[str, str], float]): Noise weights between particle types.
-        particle_types (List[str]): List of unique particle types in the simulation.
+        particle_types (List[str]): Sorted list of the unique particle types in the simulation.
+        types (NDArray[str]): Type of every particle, shape ``(N,)``, in particle order.
+
+    Particle types are read once, at construction, into the ``types`` array
+    (``particle.type`` stays a plain attribute); changing a particle's type
+    afterwards does not affect the dynamics. The weight dictionaries are read
+    on every step, so they may be edited between steps.
     """
 
-    __slots__ = ('alignment_weights', 'noise_weights', 'particle_types')
+    __slots__ = ('alignment_weights', 'noise_weights', 'particle_types', 'types', '_type_ids')
 
     def __init__(
             self,
@@ -75,6 +81,9 @@ class HeterogeneousVicsek(Vicsek):
         self.alignment_weights = alignment_weights
         self.noise_weights = noise_weights
         self.particle_types = sorted({p.type for p in particles})  # sorted: set order is hash-seed dependent
+        self.types = np.array([p.type for p in particles])
+        type_index = {t: k for k, t in enumerate(self.particle_types)}
+        self._type_ids = np.array([type_index[p.type] for p in particles], dtype=np.intp)
 
         # Validate weights matrices
         for type1 in self.particle_types:
@@ -163,22 +172,11 @@ class HeterogeneousVicsek(Vicsek):
         Returns:
             Dictionary mapping particle types to their respective order parameters.
         """
-        type_velocities = {}
-        type_counts = {}
-
-        for p in self.particles:
-            if p.type not in type_velocities:
-                type_velocities[p.type] = np.zeros(self.dim)
-                type_counts[p.type] = 0
-
-            type_velocities[p.type] += p.velocity
-            type_counts[p.type] += 1
-
-        return {
-            ptype: min(1.0, float(np.linalg.norm(vel) / (self.v * type_counts[ptype])))
-            for ptype, vel in type_velocities.items()
-            if type_counts[ptype] > 0
-        }
+        order = {}
+        for k, ptype in enumerate(self.particle_types):
+            mean_velocity = self._velocities[self._type_ids == k].mean(axis=0)
+            order[ptype] = min(1.0, float(np.linalg.norm(mean_velocity) / self.v))
+        return order
 
     def compute_cross_correlations(self) -> Dict[Tuple[str, str], float]:
         """
@@ -187,18 +185,13 @@ class HeterogeneousVicsek(Vicsek):
         Returns:
             Dictionary mapping pairs of particle types to their velocity cross-correlation.
         """
+        mean_velocities = [self._velocities[self._type_ids == k].mean(axis=0)
+                           for k in range(len(self.particle_types))]
         correlations = {}
         for i, type1 in enumerate(self.particle_types):
-            for type2 in self.particle_types[i:]:  # Upper triangle only
-                type1_particles = [p for p in self.particles if p.type == type1]
-                type2_particles = [p for p in self.particles if p.type == type2]
-
-                if not type1_particles or not type2_particles:
-                    correlations[(type1, type2)] = 0.0
-                    continue
-
-                v1_mean = np.mean([p.velocity for p in type1_particles], axis=0)
-                v2_mean = np.mean([p.velocity for p in type2_particles], axis=0)
+            for j in range(i, len(self.particle_types)):  # Upper triangle only
+                type2 = self.particle_types[j]
+                v1_mean, v2_mean = mean_velocities[i], mean_velocities[j]
 
                 denominator = np.linalg.norm(v1_mean) * np.linalg.norm(v2_mean)
                 if denominator == 0:  # a fully disordered type has no mean heading
@@ -279,7 +272,7 @@ class HeterogeneousVicsek(Vicsek):
                 if type_measurements[ptype]:  # Check if we have measurements
                     type_orders[ptype].append(np.mean(type_measurements[ptype]))
                     type_fluctuations[ptype].append(
-                        len([p for p in self.particles if p.type == ptype]) *
+                        int(np.count_nonzero(self.types == ptype)) *
                         np.var(type_measurements[ptype])
                     )
 

@@ -7,11 +7,21 @@ class Particle:
     """
     A class representing a particle in a simulation.
 
+    A particle can be constructed on its own and used freely; its ``position``
+    and ``velocity`` are then ordinary arrays it owns. Once the particle is
+    handed to a model (``Vicsek`` and its subclasses) it becomes a *view*: the
+    model stores every position and velocity in two contiguous ``(N, dim)``
+    arrays (``model.positions`` and ``model.velocities``) and binds each
+    particle to its own row, so ``particle.position`` reads the model's array
+    and ``particle.position = x`` or ``particle.position += dx`` writes into
+    it. There is a single copy of the state and the public ``Particle`` API is
+    unchanged. A particle belongs to the model that most recently received it.
+
     Attributes:
         name (str): Name of the particle.
         type (str): Type of the particle.
     """
-    __slots__ = ('_position', '_velocity', 'name', 'type')
+    __slots__ = ('_position', '_velocity', 'name', 'type', '_bound')
 
     def __init__(
         self,
@@ -31,9 +41,21 @@ class Particle:
         """
         self._position = np.array(position) if not isinstance(position, np.ndarray) else position
         self._velocity = np.array(velocity) if not isinstance(velocity, np.ndarray) else velocity
+        self._bound = False
 
         self.name = name
         self.type = type
+
+    def _bind(self, position_view: NDArray[float], velocity_view: NDArray[float]) -> None:
+        """Make this particle a view onto one row of a model's state arrays.
+
+        Called by the model; ``position_view`` and ``velocity_view`` are row
+        views of the model's ``(N, dim)`` arrays. From then on the property
+        setters write into those rows instead of rebinding the attributes.
+        """
+        self._position = position_view
+        self._velocity = velocity_view
+        self._bound = True
 
     def __sub__(self, other: 'Particle') -> float:
         """
@@ -62,7 +84,8 @@ class Particle:
         Get the current position of the particle.
 
         Returns:
-            The current position.
+            The current position (a view of the model's array once the particle
+            belongs to a model).
         """
         return self._position
 
@@ -74,7 +97,10 @@ class Particle:
         Args:
             new_position: The new position.
         """
-        self._position = new_position
+        if self._bound:
+            self._position[...] = new_position
+        else:
+            self._position = new_position
 
     @property
     def velocity(self) -> NDArray[float]:
@@ -82,7 +108,8 @@ class Particle:
         Get the current velocity of the particle.
 
         Returns:
-            The current velocity.
+            The current velocity (a view of the model's array once the particle
+            belongs to a model).
         """
         return self._velocity
 
@@ -94,7 +121,10 @@ class Particle:
         Args:
             new_velocity: The new velocity.
         """
-        self._velocity = new_velocity
+        if self._bound:
+            self._velocity[...] = new_velocity
+        else:
+            self._velocity = new_velocity
 
     def visualize(
             self,

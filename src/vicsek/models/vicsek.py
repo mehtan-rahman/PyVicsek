@@ -16,9 +16,20 @@ class Vicsek:
     A class for simulating the Vicsek model of self-propelled particles.
     This implementation supports periodic boundary conditions, visualization, and simulations of phase transitions.
 
+    State layout (struct of arrays): the model owns two contiguous float64
+    arrays, ``positions`` and ``velocities``, each of shape ``(N, dim)``, and
+    all dynamics are array operations on them. The ``Particle`` objects passed
+    to the constructor are kept in ``particles`` (same list, same order) and
+    each is bound to its row of those arrays, so ``model.particles[i].position``
+    is a view of ``model.positions[i]``: reading it sees the current state and
+    assigning to it (or ``+=``) writes into the model's array. The arrays are
+    only ever updated in place, never reallocated, so the views stay valid for
+    the life of the model; the ``positions`` / ``velocities`` setters also
+    assign in place. A particle belongs to the model that most recently
+    received it.
     """
     __slots__ = ('length', 'interaction_range', 'v', 'mu', 'delta_t',
-                 'particles', 'dim', '_cell_list', '_rng')
+                 'particles', 'dim', '_cell_list', '_rng', '_positions', '_velocities')
 
     def __init__(
             self,
@@ -64,14 +75,24 @@ class Vicsek:
         self.particles = particles
         self.dim = len(particles[0].position)
 
+        # Struct of arrays: one (N, dim) array each for positions and velocities.
+        self._positions = np.array([p.position for p in particles], dtype=float).reshape(len(particles), self.dim)
+        self._velocities = np.array([p.velocity for p in particles], dtype=float).reshape(len(particles), self.dim)
+
         # The Vicsek model moves every particle at the same speed v. Rescale the
         # initial velocities so that the order parameter (|<v>| / v) is well
-        # defined from t = 0; a zero initial velocity gets a random heading.
-        for particle in self.particles:
-            velocity = np.asarray(particle.velocity, dtype=float)
-            norm = np.linalg.norm(velocity)
-            direction = velocity / norm if norm > 0 else _random_unit_vector(self.dim, self._rng)
-            particle.velocity = self.v * direction
+        # defined from t = 0; a zero initial velocity gets a random heading
+        # (drawn in particle order, as before).
+        norms = np.linalg.norm(self._velocities, axis=1)
+        moving = norms > 0
+        self._velocities[moving] /= norms[moving, None]
+        for i in np.flatnonzero(~moving):
+            self._velocities[i] = _random_unit_vector(self.dim, self._rng)
+        self._velocities *= self.v
+
+        # Bind every particle to its row so the Particle API reads and writes the arrays.
+        for i, particle in enumerate(particles):
+            particle._bind(self._positions[i], self._velocities[i])
 
         self._cell_list = CellList(
             particles=self.particles,
@@ -81,6 +102,24 @@ class Vicsek:
             use_pbc=use_pbc
         )
         self._cell_list.build()  #Create a cell list for efficient neighbor search
+
+    @property
+    def positions(self) -> NDArray:
+        """``(N, dim)`` array of positions; ``particles[i].position`` is a view of row ``i``."""
+        return self._positions
+
+    @positions.setter
+    def positions(self, value: ArrayLike) -> None:
+        self._positions[...] = value   # in place, so the particle views stay valid
+
+    @property
+    def velocities(self) -> NDArray:
+        """``(N, dim)`` array of velocities; ``particles[i].velocity`` is a view of row ``i``."""
+        return self._velocities
+
+    @velocities.setter
+    def velocities(self, value: ArrayLike) -> None:
+        self._velocities[...] = value
 
     def _compute_average_velocity(self, velocities: NDArray) -> NDArray:
         """
@@ -137,17 +176,15 @@ class Vicsek:
 
         self._apply_updates(new_velocities)
 
-    def _apply_updates(self, new_velocities: List[NDArray]) -> None:
-        """Assign the new velocities, move every particle by v * dt (wrapping under
-        PBC) and refresh the cell list."""
-        for particle, velocity in zip(self.particles, new_velocities):
-            particle.velocity = velocity
-            new_position = particle.position + velocity * self.delta_t #updating position
+    def _apply_updates(self, new_velocities: ArrayLike) -> None:
+        """Assign the new velocities (an ``(N, dim)`` array or a list of vectors),
+        move every particle by v * dt (wrapping under PBC) and mark the cell list
+        stale. Everything is written in place into the state arrays."""
+        self._velocities[...] = new_velocities
+        self._positions += self._velocities * self.delta_t  #updating position
 
-            if self._cell_list.use_pbc:
-                new_position = new_position % self.length #ensuring periodic boundary
-
-            particle.position = new_position
+        if self._cell_list.use_pbc:
+            np.mod(self._positions, self.length, out=self._positions)  #ensuring periodic boundary
 
         self._cell_list.update()
 
@@ -215,9 +252,8 @@ class Vicsek:
         Returns:
             float: The order parameter value, a measure of the average alignment of particles, normalized by the speed.
         """
-        velocities = np.array([p.velocity for p in self.particles])
         # min(): round-off can give 1 + 2e-16 for perfectly aligned particles.
-        return min(1.0, float(np.linalg.norm(np.mean(velocities, axis=0)) / self.v))
+        return min(1.0, float(np.linalg.norm(np.mean(self._velocities, axis=0)) / self.v))
 
     def order_parameter_evolution(self, steps: int = 750) -> NDArray:
         """
