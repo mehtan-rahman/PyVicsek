@@ -10,3 +10,8 @@ build/
 src/*.egg-info/
 build/
 dist/
+.hypothesis/
+*.so
+*.pyd
+_skbuild/
+wheelhouse/
