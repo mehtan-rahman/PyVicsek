@@ -1,11 +1,52 @@
 name: Publish to PyPI
 
+# Builds binary wheels (with the C++ kernel) for CPython 3.10-3.12 on Linux,
+# macOS (Intel and Apple silicon) and Windows, plus the sdist, and uploads them
+# to PyPI on a published release. workflow_dispatch builds and tests everything
+# without publishing. The file name stays publish.yml: the PyPI trusted
+# publisher is bound to it.
+
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 jobs:
-  build:
+  wheels:
+    name: wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: macos-15-intel        # x86_64; macos-13 was retired in December 2025
+            macos-target: "10.15"
+          - os: macos-14              # arm64
+            macos-target: "11.0"
+          - os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pypa/cibuildwheel@v2.23.4
+        env:
+          CIBW_BUILD: "cp310-* cp311-* cp312-*"
+          # 64-bit glibc Linux, macOS and Windows only (numpy ships no wheels for the rest).
+          CIBW_SKIP: "*-musllinux_* *-win32 *_i686"
+          CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos-target }}
+          CIBW_TEST_REQUIRES: pytest hypothesis
+          CIBW_TEST_COMMAND: >-
+            python -c "import vicsek, vicsek._kernel; assert vicsek.kernel_enabled()"
+            && pytest {project}/tests/test_kernel.py -q -p no:cacheprovider
+            -k "boundary_positions_match or vicsek_trajectory_matches"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    name: sdist
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -13,14 +54,19 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade build
-      - run: python -m build
+      - run: python -m build --sdist
+      - name: Install the sdist (compiles the kernel) and check it imports
+        run: |
+          python -m pip install dist/*.tar.gz
+          cd /tmp && python -c "import vicsek, vicsek._kernel; assert vicsek.kernel_enabled()"
       - uses: actions/upload-artifact@v4
         with:
-          name: dist
-          path: dist/
+          name: sdist
+          path: dist/*.tar.gz
 
   publish:
-    needs: build
+    needs: [wheels, sdist]
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -28,6 +74,6 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: dist
           path: dist/
+          merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1

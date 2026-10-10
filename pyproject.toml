@@ -45,6 +45,7 @@ minimum-version = "build-system.requires"
 build-dir = "build/{wheel_tag}"
 # The pure-Python package; CMakeLists.txt adds the vicsek._kernel extension.
 wheel.packages = ["src/vicsek"]
+wheel.exclude = ["**.cpp"]
 # Stable ABI (abi3) wheel on CPython 3.12+, version-specific wheels for 3.10/3.11.
 wheel.py-api = "cp312"
 sdist.exclude = ["scripts/", "docs/", ".github/", "dist/", "build/", ".hypothesis/", "requirements.txt"]
