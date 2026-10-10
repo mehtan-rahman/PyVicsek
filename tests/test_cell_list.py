@@ -252,3 +252,120 @@ def test_visualize_on_existing_axes_without_grid(particles):
     assert len(ax.texts) == 0
     assert len(ax.collections) == len(particles)
     assert len(plt.get_fignums()) == 1  # no extra figure was created
+
+
+# --- vectorised routine: neighbor_pairs / mean_neighbor_velocity ---------------
+
+def pairs_from_get_neighbors(cell_list, particles):
+    """Reference: the ordered (i, j) pairs that per-particle get_neighbors returns."""
+    index_of = {id(p): k for k, p in enumerate(particles)}
+    pairs = set()
+    for i, p in enumerate(particles):
+        for q in cell_list.get_neighbors(p):
+            pairs.add((i, index_of[id(q)]))
+    return pairs
+
+
+@pytest.mark.parametrize("n_dimensions", [2, 3])
+@pytest.mark.parametrize("use_pbc", [True, False])
+@pytest.mark.parametrize("box_length,interaction_range", [
+    (10.0, 1.0),   # 10 cells per axis
+    (10.0, 3.0),   # 3 cells per axis
+    (2.5, 1.0),    # 2 cells per axis: offsets -1 and +1 wrap onto the same cell under PBC
+    (1.5, 1.0),    # 1 cell per axis
+])
+def test_neighbor_pairs_match_get_neighbors(rng, n_dimensions, use_pbc, box_length, interaction_range):
+    """The vectorised neighbour search returns exactly the pairs the per-particle
+    search does, with the same distances, for random configurations in 2-D and
+    3-D, periodic and open (with particles spilled outside the open box)."""
+    n = 120 if n_dimensions == 2 else 160
+    spill = 0.0 if use_pbc else 0.3 * interaction_range
+    particles = random_particles(rng, n, box_length, n_dimensions, spill=spill)
+    cell_list = CellList(particles, box_length, interaction_range,
+                         n_dimensions=n_dimensions, use_pbc=use_pbc)
+    cell_list.build()
+    positions = np.array([p.position for p in particles])
+
+    i, j, dist = cell_list.neighbor_pairs(positions)
+    assert i.shape == j.shape == dist.shape
+    assert len(set(zip(i.tolist(), j.tolist()))) == len(i)          # no duplicate pairs
+    assert set(zip(i.tolist(), j.tolist())) == pairs_from_get_neighbors(cell_list, particles)
+    assert np.all(np.diff(i) >= 0)                                  # grouped by focal particle
+    # Distances agree with the per-pair definition.
+    delta = positions[j] - positions[i]
+    if use_pbc:
+        delta -= box_length * np.round(delta / box_length)
+    assert np.allclose(dist, np.linalg.norm(delta, axis=1), rtol=0, atol=1e-12)
+    assert np.all(dist <= interaction_range)
+    # Default argument reads the particles' current positions.
+    i2, j2, _ = cell_list.neighbor_pairs()
+    assert np.array_equal(i, i2) and np.array_equal(j, j2)
+
+
+@settings(derandomize=True, max_examples=40, deadline=None)
+@given(
+    seed=st.integers(min_value=0, max_value=2**31 - 1),
+    n_dimensions=st.sampled_from([2, 3]),
+    use_pbc=st.booleans(),
+    n_cells=st.integers(min_value=1, max_value=6),
+    n_particles=st.integers(min_value=1, max_value=40),
+)
+def test_neighbor_pairs_match_get_neighbors_property(seed, n_dimensions, use_pbc, n_cells, n_particles):
+    rng = np.random.default_rng(seed)
+    box_length = n_cells + rng.uniform(0.0, 0.99)
+    spill = 0.0 if use_pbc else 0.4
+    particles = random_particles(rng, n_particles, box_length, n_dimensions, spill=spill)
+    cell_list = CellList(particles, box_length, 1.0, n_dimensions=n_dimensions, use_pbc=use_pbc)
+    cell_list.build()
+    i, j, _ = cell_list.neighbor_pairs()
+    assert set(zip(i.tolist(), j.tolist())) == pairs_from_get_neighbors(cell_list, particles)
+
+
+@pytest.mark.parametrize("n_dimensions", [2, 3])
+@pytest.mark.parametrize("use_pbc", [True, False])
+def test_mean_neighbor_velocity_matches_per_particle_mean(rng, n_dimensions, use_pbc):
+    """mean[i] is the plain average of particle i's velocity and its neighbours';
+    a particle with no neighbours (or outside an open box) keeps its own velocity."""
+    n = 150
+    particles = random_particles(rng, n, 8.0, n_dimensions, spill=0.0 if use_pbc else 0.5)
+    for p in particles:
+        p.velocity = rng.normal(size=n_dimensions)
+    cell_list = CellList(particles, 8.0, 1.0, n_dimensions=n_dimensions, use_pbc=use_pbc)
+    cell_list.build()
+    positions = np.array([p.position for p in particles])
+    velocities = np.array([p.velocity for p in particles])
+
+    mean, counts = cell_list.mean_neighbor_velocity(positions, velocities)
+    assert mean.shape == (n, n_dimensions) and counts.shape == (n,)
+    for i, p in enumerate(particles):
+        neighbors = cell_list.get_neighbors(p)
+        assert counts[i] == len(neighbors)
+        expected = np.mean([p.velocity] + [q.velocity for q in neighbors], axis=0)
+        assert np.allclose(mean[i], expected, rtol=0, atol=1e-13)
+    assert counts.max() > 0                       # the configuration is not trivial
+
+
+def test_neighbor_pairs_everyone_outside_open_box():
+    particles = random_particles(np.random.default_rng(0), 5, 1.0, 2)
+    for p in particles:
+        p.position = p.position + 10.0           # all outside [0, 1)
+    cell_list = CellList(particles, 1.0, 1.0, use_pbc=False)
+    i, j, dist = cell_list.neighbor_pairs()
+    assert i.size == j.size == dist.size == 0
+    mean, counts = cell_list.mean_neighbor_velocity(
+        np.array([p.position for p in particles]), np.ones((5, 2)))
+    assert np.array_equal(mean, np.ones((5, 2))) and np.all(counts == 0)
+
+
+def test_cells_are_rebuilt_lazily_after_invalidate(particles):
+    cell_list = CellList(particles, box_length=10.0, interaction_range=1.0)
+    cell_list.build()
+    assert [p.name for p in cell_list.cells[(0, 0)]] == ["A", "B"]
+    particles[0].position = np.array([1.5, 1.5])
+    cell_list.invalidate()                        # nothing is rebuilt yet ...
+    assert [p.name for p in cell_list._cells[(0, 0)]] == ["A", "B"]
+    assert [p.name for p in cell_list.cells[(0, 0)]] == ["B"]   # ... until cells is read
+    assert sorted(p.name for p in cell_list.cells[(1, 1)]) == ["A", "C"]
+    particles[0].position = np.array([0.5, 0.5])
+    cell_list.invalidate()
+    assert [n.name for n in cell_list.get_neighbors(particles[1])] == ["A"]  # get_neighbors rebuilds too
