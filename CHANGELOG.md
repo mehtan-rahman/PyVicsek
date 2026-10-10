@@ -27,6 +27,7 @@
 - Constructors, `step`, `run`, `equilibrate`, `order_parameter`, `order_parameter_evolution`, `simulate_phase_transition`, `visualize`, `animate`; `Particle` construction and attributes; `initialize_random_particles` (still returns `Particle` objects); `CellList(particles, ...)`, `build`, `update`, `get_neighbors`, `visualize`, `cells`; the per-particle methods `_compute_average_velocity`, `_apply_noise`, `_compute_weighted_velocity`, `_compute_effective_noise`, `_smooth_weight`, which remain the reference definitions the array code is tested against.
 - Open boundaries: particles outside `[0, L)` take part in no neighbour search and nothing is wrapped.
 - No new dependencies.
+- `scripts/validate_phase_transition.py --full` result (N = 4000, eta_c = 0.85) and figure added to the README.
 
 ## 0.2.0 (2026-10-10)
 

@@ -98,7 +98,9 @@ More scripts are in `scripts/`, organised by system type.
 
 ![Order parameter against noise amplitude for N = 400](scripts/phase_transition.png)
 
-Quick mode (N = 400, 300 steps per run, 21 noise values, 3 seeds; 152 s on an Apple Silicon M5, Python 3.12, 2026-10-09) gives **eta_c = 1.01**. The order-disorder transition is reproduced, with phi falling to the 1/sqrt(N) = 0.05 noise floor on the disordered side. The value is lower than the 2 to 3 reported by Vicsek et al. for the same N, density and speed because this library uses vectorial rather than angular noise: here `noise_factor = 1` adds a random vector as long as the mean direction itself, so the two noise scales are not directly comparable. Run with `--full` for N = 4000 (slow).
+Quick mode (N = 400, 300 steps per run, 21 noise values, 3 seeds; 152 s on an Apple Silicon M5, Python 3.12, 2026-10-09) gives **eta_c = 1.01**. The order-disorder transition is reproduced, with phi falling to the 1/sqrt(N) = 0.05 noise floor on the disordered side. The value is lower than the 2 to 3 reported by Vicsek et al. for the same N, density and speed because this library uses vectorial rather than angular noise: here `noise_factor = 1` adds a random vector as long as the mean direction itself, so the two noise scales are not directly comparable. Full mode (`--full`: N = 4000, 2000 steps per run, same noise grid and seeds; 181 s on the same machine with the vectorised step) gives **eta_c = 0.85**, with the disordered-side floor at 1/sqrt(N) = 0.016. The downward shift from N = 400 to N = 4000 is the expected finite-size effect: the transition sharpens and moves to lower noise as N grows.
+
+![Order parameter against noise amplitude for N = 4000](scripts/phase_transition_full.png)
 
 ## Performance
 
