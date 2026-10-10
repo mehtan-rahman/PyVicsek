@@ -283,12 +283,14 @@ neighbor_pairs(InArray positions, double box_length, double radius, bool use_pbc
         CellGrid g;
         build_grid(g, pos, n, dim, box_length, radius, use_pbc);
         with_dim(dim, [&](auto d_const) {
-            constexpr int D = decltype(d_const)::value;
+            // The dimension as a type: MSVC will not treat a constexpr local of
+            // a generic lambda as a constant inside the nested lambdas below.
+            using DC = decltype(d_const);
             parallel_blocks(n, n_threads, [&](int w, int64_t lo, int64_t hi) {
                 auto &vi = fi[w], &vj = fj[w];
                 auto &vd = fd[w];
                 for (int64_t i = lo; i < hi; ++i)
-                    for_each_neighbor<D>(g, pos, i, [&](int64_t j, int64_t, double d) {
+                    for_each_neighbor<DC::value>(g, pos, i, [&](int64_t j, int64_t, double d) {
                         vi.push_back(i);
                         vj.push_back(j);
                         vd.push_back(d);
@@ -345,7 +347,9 @@ mean_neighbor_velocity(InArray positions, InArray velocities, double box_length,
             }
         const int64_t m = static_cast<int64_t>(g.order.size());
         with_dim(dim, [&](auto d_const) {
-            constexpr int D = decltype(d_const)::value;
+            // The dimension as a type: MSVC will not treat a constexpr local of
+            // a generic lambda as a constant inside the nested lambdas below.
+            using DC = decltype(d_const);
             // Focal particles in cell order too (better locality; each
             // particle's result does not depend on the visiting order).
             parallel_blocks(m, n_threads, [&](int, int64_t lo, int64_t hi) {
@@ -356,9 +360,9 @@ mean_neighbor_velocity(InArray positions, InArray velocities, double box_length,
                     // pair order, then added to the particle's own velocity.
                     std::fill(acc.begin(), acc.end(), 0.0);
                     int64_t c = 0;
-                    for_each_neighbor<D>(g, pos, i, [&](int64_t, int64_t slot, double) {
+                    for_each_neighbor<DC::value>(g, pos, i, [&](int64_t, int64_t slot, double) {
                         const double *vj = sorted_vel.data() + slot * dim;
-                        for (int k = 0; k < (D > 0 ? D : dim); ++k)
+                        for (int k = 0; k < (DC::value > 0 ? DC::value : dim); ++k)
                             acc[k] += vj[k];
                         ++c;
                     });

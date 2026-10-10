@@ -31,6 +31,9 @@ jobs:
       - uses: pypa/cibuildwheel@v2.23.4
         env:
           CIBW_BUILD: "cp310-* cp311-* cp312-*"
+          # glibc 2.28 image: current numpy and pillow wheels need it, and the
+          # manylinux2014 image falls back to compiling pillow in the test step.
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
           # 64-bit glibc Linux, macOS and Windows only (numpy ships no wheels for the rest).
           CIBW_SKIP: "*-musllinux_* *-win32 *_i686"
           CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos-target }}
