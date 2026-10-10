@@ -3,6 +3,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from numpy.typing import NDArray
 from vicsek.models.particle import Particle
+from vicsek.util import backend
 
 
 def _grid(box_length: float, interaction_range: float) -> Tuple[int, float]:
@@ -103,8 +104,16 @@ def neighbor_pairs(positions: NDArray, box_length: float, interaction_range: flo
     cells into candidate pairs with ``np.repeat``, then keep the pairs within
     range. Cost is O(N) in time and memory (about 3^dim times the mean cell
     occupancy in candidates per particle).
+
+    When the C++ kernel is enabled (``vicsek.use_kernel``) the same pairs, in
+    the same order and with bit-identical distances, come from
+    ``vicsek._kernel.neighbor_pairs``.
     """
     positions = np.asarray(positions, dtype=float)
+    kernel = backend.kernel()
+    if kernel is not None:
+        return kernel.neighbor_pairs(np.ascontiguousarray(positions), float(box_length),
+                                     float(interaction_range), bool(use_pbc), backend.kernel_threads())
     n, dim = positions.shape
     n_cells, cell_size = _grid(box_length, interaction_range)
 
@@ -279,9 +288,16 @@ class CellList:
         ``velocities[i]`` and the velocities of the neighbours of ``i`` (so a
         particle with no neighbours keeps its own velocity), and
         ``n_neighbors[i]`` is the number of neighbours, excluding ``i`` itself.
-        This is what ``Vicsek.step`` averages before normalising.
+        This is what ``Vicsek.step`` averages before normalising. Computed by
+        the C++ kernel when it is enabled (bit-identical result).
         """
         velocities = np.asarray(velocities, dtype=float)
+        kernel = backend.kernel()
+        if kernel is not None:
+            return kernel.mean_neighbor_velocity(
+                np.ascontiguousarray(positions, dtype=float), np.ascontiguousarray(velocities),
+                float(self.box_length), float(self.interaction_range), bool(self.use_pbc),
+                backend.kernel_threads())
         focal, neighbor, _ = self.neighbor_pairs(positions)
         n, dim = velocities.shape
         sums = velocities.copy()
